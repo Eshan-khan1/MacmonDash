@@ -83,6 +83,11 @@ final class VerticalFanSlider: NSView {
   }
 }
 
+/// macmon reports Celsius. The app shows Fahrenheit.
+func fahrenheit(fromCelsius celsius: Double) -> Double {
+  celsius * 9 / 5 + 32
+}
+
 /// Fan icon color by temperature: green (normal) → yellow (warm) → red (hot).
 enum FanHeat {
   case normal, warm, hot
@@ -98,11 +103,9 @@ enum FanHeat {
   var palette: (NSColor, NSColor, NSColor) {
     switch self {
     case .normal:
-      return (
-        NSColor(srgbRed: 50 / 255, green: 110 / 255, blue: 40 / 255, alpha: 1),
-        tuiGreen,
-        NSColor(srgbRed: 130 / 255, green: 220 / 255, blue: 95 / 255, alpha: 1)
-      )
+      // Same green as the stat graphs. Dim is only for blade depth.
+      let dim = tuiGreen.blended(withFraction: 0.42, of: tuiBackground) ?? tuiGreen
+      return (dim, tuiGreen, tuiGreen)
     case .warm:
       return (
         NSColor(srgbRed: 130 / 255, green: 105 / 255, blue: 20 / 255, alpha: 1),
@@ -323,7 +326,7 @@ final class CPUFanOverlayView: NSView {
   override init(frame: NSRect) {
     super.init(frame: frame)
     wantsLayer = true
-    layer?.backgroundColor = NSColor.black.cgColor
+    layer?.backgroundColor = tuiBackground.cgColor
     slider0.onChange = { [weak self] v in self?.onSlider0?(v) }
     slider1.onChange = { [weak self] v in self?.onSlider1?(v) }
     addSubview(left)

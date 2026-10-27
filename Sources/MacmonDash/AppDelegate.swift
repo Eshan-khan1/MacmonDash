@@ -3,7 +3,26 @@ import SwiftTerm
 import os.log
 
 private let log = Logger(subsystem: "com.local.macmondash", category: "App")
-private let accentGreen = tuiGreen
+
+/// Clear Dark’s 16 ANSI colors, so macmon’s green matches the overlays.
+private let tuiAnsiColors: [Color] = [
+  Color(red8: 53, green8: 66, blue8: 76),
+  Color(red8: 180, green8: 86, blue8: 72),
+  Color(red8: 108, green8: 170, blue8: 113),
+  Color(red8: 196, green8: 172, blue8: 98),
+  Color(red8: 109, green8: 150, blue8: 180),
+  Color(red8: 189, green8: 123, blue8: 205),
+  Color(red8: 124, green8: 203, blue8: 205),
+  Color(red8: 222, green8: 229, blue8: 235),
+  Color(red8: 70, green8: 92, blue8: 109),
+  Color(red8: 223, green8: 108, blue8: 90),
+  Color(red8: 121, green8: 190, blue8: 126),
+  Color(red8: 229, green8: 200, blue8: 114),
+  Color(red8: 103, green8: 181, blue8: 237),
+  Color(red8: 211, green8: 137, blue8: 229),
+  Color(red8: 132, green8: 221, blue8: 224),
+  Color(red8: 229, green8: 239, blue8: 245),
+]
 
 /// Allows free horizontal/vertical resize (no cell snapping).
 final class ResizableMacmonWindow: NSWindow {
@@ -28,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var fanOverlay: CPUFanOverlayView?
   private let fanMenu = FanMenuBar()
   private var bottomChrome = BottomSectionChrome()
+  private let graphStripes = GraphStripeOverlay(frame: .zero)
   private var metricsPipe = MetricsPipe()
   private let helperSetup = HelperSetup()
   private var pingTimer: Timer?
@@ -58,19 +78,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
 
     let content = NSView(frame: NSRect(x: 0, y: 0, width: 920, height: 580))
     content.wantsLayer = true
-    content.layer?.backgroundColor = NSColor.black.cgColor
+    content.layer?.backgroundColor = tuiBackground.cgColor
     content.autoresizesSubviews = true
 
     let term = LocalProcessTerminalView(frame: content.bounds)
     term.autoresizingMask = [.width, .height]
     term.processDelegate = self
-    term.nativeBackgroundColor = .black
-    term.nativeForegroundColor = accentGreen
+    term.nativeBackgroundColor = tuiBackground
+    term.nativeForegroundColor = tuiText
+    term.installColors(tuiAnsiColors)
     term.font = NSFont(name: "SF Mono", size: 12)
       ?? NSFont(name: "Menlo", size: 12)
       ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     content.addSubview(term)
     self.terminal = term
+    graphStripes.frame = content.bounds
+    graphStripes.autoresizingMask = [.width, .height]
+    content.addSubview(graphStripes)
 
     // Frame-based overlay (no Auto Layout) so it cannot lock window width.
     let overlay = CPUFanOverlayView(frame: .zero)
@@ -79,9 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     overlay.onSlider1 = { [weak self] v in self?.userMovedSlider(index: 1, level: v) }
     self.fanOverlay = overlay
     fanMenu.install()
+    fanMenu.onShowDashboard = { [weak self] in self?.showMainWindow(nil) }
     fanMenu.overlay.onSlider0 = { [weak self] v in self?.userMovedSlider(index: 0, level: v) }
     fanMenu.overlay.onSlider1 = { [weak self] v in self?.userMovedSlider(index: 1, level: v) }
-    // Temp (middle) + Power (right) over macmon; fans in CPU cell on top.
+    // Temp (middle) + Power (right) over macmon; fans in the CPU cell on top.
     bottomChrome.install(on: content)
     content.addSubview(overlay, positioned: .above, relativeTo: bottomChrome.powerPanel)
 
@@ -101,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     )
     window.title = "MacmonDash"
     window.contentView = content
-    window.backgroundColor = .black
+    window.backgroundColor = tuiBackground
     // Force free pixel resize (terminals often snap to cell size).
     window.resizeIncrements = NSSize(width: 1, height: 1)
     window.aspectRatio = .zero
@@ -126,6 +151,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       self,
       selector: #selector(windowDidEndLiveResize),
       name: NSWindow.didEndLiveResizeNotification,
+      object: window
+    )
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(mainWindowWillClose),
+      name: NSWindow.willCloseNotification,
       object: window
     )
 
@@ -236,7 +267,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     relayoutOverlay()
   }
 
-  /// Fans in CPU cell + Temp/Power panels on the terminal grid.
+  /// Closing the window parks the dashboard; metrics + menu-bar fans keep running.
+  @objc private func mainWindowWillClose(_ note: Notification) {
+    if started {
+      terminal?.terminate()
+      started = false
+    }
+  }
+
+  @objc func showMainWindow(_ sender: Any?) {
+    guard let window else { return }
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    if !started {
+      startAttempts = 0
+      scheduleStart()
+    }
+    relayoutOverlay()
+  }
+
+  /// Fans in the CPU cell + Temp/Power panels on the terminal grid.
   @objc private func relayoutOverlay() {
     guard let root = window?.contentView, let overlay = fanOverlay, let term = terminal else { return }
     let scale = window?.backingScaleFactor ?? 2
@@ -246,9 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       viewHeight: term.bounds.height, scale: scale
     )
     let cpuInner = bottomChrome.relayout(grid: grid)
-
+    overlay.isHidden = false
     if let cell = cpuInner {
-      // Keep the TUI's own CPU box border + title; fans fill its interior.
       overlay.frame = cell.insetBy(dx: 2, dy: 2)
     } else {
       overlay.frame = .zero
@@ -257,9 +306,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     overlay.layoutSubtreeIfNeeded()
 
     if let g = grid {
+      let top = TuiTopLayout(cols: g.cols, rows: g.rows)
+      graphStripes.place(grid: g, cells: [top.cpuLeft, top.cpuRight, top.ram, top.gpu])
       // Text button on the RAM box title row, just left of the right-aligned
       // " SWAP x.xx / y.y GB " title (20 cells, ends 1 cell before the corner).
-      let top = TuiTopLayout(cols: g.cols, rows: g.rows)
       let ram = top.ram
       let swapStart = ram.col + ram.w - 1 - 20
       let bw = ramButton.widthInCells
@@ -289,6 +339,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
         col: clusterFix.headerCol, row: top.outer.row, grid: g
       )
     } else {
+      graphStripes.place(grid: nil, cells: [])
       ramButton.frame = .zero
       ramStatus.frame = .zero
       cpuLeftTitle.frame = .zero
@@ -336,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private func startMetricsPipe() {
     guard let path = resourcePath("macmon10") else { return }
     try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+    // Each callback is one full tick: fans + power + package/battery temps together.
     metricsPipe.onUpdate = { [weak self] m in
       guard let self else { return }
       let fans = m.fans
@@ -354,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       }
       let manual0 = self.manual0 ? self.level0 : nil
       let manual1 = self.manual1 ? self.level1 : nil
-      let tempC = max(m.cpuTemp, m.gpuTemp)
+      let tempC = m.displayTemp
       self.fanOverlay?.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
       self.fanMenu.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
       self.bottomChrome.update(m)
@@ -482,10 +534,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     env.append("COLORTERM=truecolor")
 
     started = true
-    term.startProcess(executable: path, args: [], environment: env, execName: "macmon")
+    // Match MetricsPipe cadence so TUI bars and overlay stats tick together.
+    term.startProcess(
+      executable: path,
+      args: ["-i", "\(MetricsCadence.intervalMs)"],
+      environment: env,
+      execName: "macmon"
+    )
   }
 
-  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+  /// Keep the process alive for the menu-bar fan / temp when the dashboard closes.
+  func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+    if !flag { showMainWindow(nil) }
+    return true
+  }
 
   func applicationWillTerminate(_ notification: Notification) {
     pingTimer?.invalidate()
@@ -510,8 +574,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
 
   func processTerminated(source: TerminalView, exitCode: Int32?) {
     started = false
-    if exitCode == 0 || exitCode == nil { window?.close() }
-    else { terminal?.feed(text: "\r\n\r\n[macmon exited (\(exitCode!))]\r\n") }
+    // 'q' in the TUI: hide the dashboard; menu-bar fans stay. Abnormal exit: show message.
+    if exitCode == 0 || exitCode == nil {
+      if window?.isVisible == true { window?.close() }
+    } else if window?.isVisible == true {
+      terminal?.feed(text: "\r\n\r\n[macmon exited (\(exitCode!))]\r\n")
+    }
   }
 
   func processFailedToStart(source: TerminalView, error: LocalProcessError) {

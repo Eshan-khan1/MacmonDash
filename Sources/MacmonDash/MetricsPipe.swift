@@ -11,21 +11,41 @@ struct FanReading: Equatable {
 
 struct LiveMetrics: Equatable {
   var fans: [FanReading] = []
+  /// macmon CPU/GPU averages (kept for reference; UI uses package probes).
   var cpuTemp: Double = 0
   var gpuTemp: Double = 0
+  /// PMU TP*s / TP*g package probes (°C), filled by TempProbe.
+  var packageS: Double = 0
+  var packageG: Double = 0
+  /// Battery pack temperature (°C) from gas-gauge sensors.
+  var batteryTemp: Double = 0
   var cpuPower: Double = 0
   var gpuPower: Double = 0
   var anePower: Double = 0
   var allPower: Double = 0
   var sysPower: Double = 0
+
+  /// Hotter package probe — what the Temp panel and menu bar show.
+  var displayTemp: Double {
+    let hot = max(packageS, packageG)
+    return hot > 1 ? hot : max(cpuTemp, gpuTemp)
+  }
 }
 
-/// Single macmon10 `pipe` reader for fans + temps + power.
+/// Shared refresh cadence for the TUI and the overlay metrics pipe (ms).
+enum MetricsCadence {
+  static let intervalMs = 1000
+}
+
+/// Single macmon10 `pipe` reader for fans + power; merges TempProbe on the same tick.
 final class MetricsPipe {
   private var process: Process?
   private var stdout: Pipe?
   private var buffer = Data()
   private let lock = NSLock()
+  /// Serial enrichment so each UI tick is one complete snapshot (no out-of-order temps).
+  private let enrichQueue = DispatchQueue(label: "com.local.macmondash.metrics")
+  private var tick = 0
   var onUpdate: ((LiveMetrics) -> Void)?
 
   func start(macmon10Path: String) {
@@ -33,7 +53,8 @@ final class MetricsPipe {
     let out = Pipe()
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: macmon10Path)
-    proc.arguments = ["pipe", "-i", "500"]
+    // Same interval as the TUI so bars / fans / temp / power advance together.
+    proc.arguments = ["pipe", "-i", "\(MetricsCadence.intervalMs)"]
     proc.standardOutput = out
     proc.standardError = FileHandle.nullDevice
     var env = ProcessInfo.processInfo.environment
@@ -63,7 +84,7 @@ final class MetricsPipe {
     }
     process = nil
     stdout = nil
-    lock.lock(); buffer.removeAll(); lock.unlock()
+    lock.lock(); buffer.removeAll(); tick = 0; lock.unlock()
   }
 
   private func consume(_ chunk: Data) {
@@ -75,9 +96,28 @@ final class MetricsPipe {
       buffer.removeSubrange(buffer.startIndex...range.lowerBound)
     }
     lock.unlock()
-    for line in lines {
-      if let m = Self.parse(line) {
-        DispatchQueue.main.async { [weak self] in self?.onUpdate?(m) }
+    // Keep only the freshest pipe line if several arrived in one chunk.
+    guard let line = lines.last, let parsed = Self.parse(line) else { return }
+    enrichQueue.async { [weak self] in
+      guard let self else { return }
+      self.lock.lock()
+      self.tick &+= 1
+      let myTick = self.tick
+      self.lock.unlock()
+
+      var m = parsed
+      let pkg = TempProbe.sample()
+      m.packageS = pkg.tps
+      m.packageG = pkg.tpg
+      m.batteryTemp = pkg.battery
+
+      self.lock.lock()
+      let stillLatest = self.tick == myTick
+      self.lock.unlock()
+      guard stillLatest else { return }
+
+      DispatchQueue.main.async { [weak self] in
+        self?.onUpdate?(m)
       }
     }
   }

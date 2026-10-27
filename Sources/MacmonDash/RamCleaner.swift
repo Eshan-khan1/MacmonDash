@@ -207,7 +207,7 @@ final class RamCleanButton: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-    NSColor.black.setFill()
+    tuiBackground.setFill()
     bounds.fill()
 
     let accent = buttonAmber.withAlphaComponent(busy ? 0.5 : 1)
@@ -259,7 +259,7 @@ final class RamStatusLabel: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard !text.isEmpty, let ctx = NSGraphicsContext.current?.cgContext else { return }
-    NSColor.black.setFill()
+    tuiBackground.setFill()
     bounds.fill()
     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tuiGreen]
     let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))

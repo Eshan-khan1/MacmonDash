@@ -148,7 +148,7 @@ final class GridTextPatch: NSView {
 
   override func draw(_ dirtyRect: NSRect) {
     guard !text.isEmpty, let ctx = NSGraphicsContext.current?.cgContext else { return }
-    NSColor.black.setFill()
+    tuiBackground.setFill()
     bounds.fill()
     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tuiGreen]
     let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))

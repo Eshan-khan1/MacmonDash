@@ -1,9 +1,11 @@
 import AppKit
 
-/// Source green tuned so AppKit drawing lands on the same screen pixels as
-/// SwiftTerm's macmon green (~#5BB941 / 91,185,65). Raw sRGB of that value
-/// renders brighter (~115,183,82) in NSView; this darker source corrects it.
-let tuiGreen = NSColor(srgbRed: 45 / 255, green: 187 / 255, blue: 39 / 255, alpha: 1)
+/// Terminal.app “Clear Dark” — navy field and ANSI green from the reference screenshot.
+let tuiBackground = NSColor(srgbRed: 0.09838771145, green: 0.1138777476, blue: 0.152602838, alpha: 1)
+let tuiGreen = NSColor(srgbRed: 0.4241566305, green: 0.6672818346, blue: 0.4415227165, alpha: 1)
+let tuiText = NSColor(srgbRed: 0.8776108099, green: 0.8776108099, blue: 0.8776108099, alpha: 1)
+/// Dark gap between graph bands, as a fraction of one terminal row.
+let tuiRowGapFraction: CGFloat = 0.22
 
 /// Mirror of SwiftTerm's cell grid so overlays can sit exactly on TUI cells.
 struct TerminalGrid {
@@ -122,6 +124,39 @@ struct TuiTopLayout {
   }
 }
 
+/// Cuts the same horizontal gaps into macmon's E-CPU, P-CPU, RAM, and GPU graphs.
+final class GraphStripeOverlay: NSView {
+  private var grid: TerminalGrid?
+  private var cells: [CellRect] = []
+
+  override init(frame: NSRect) {
+    super.init(frame: frame)
+    wantsLayer = false
+  }
+  required init?(coder: NSCoder) { fatalError() }
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+  func place(grid: TerminalGrid?, cells: [CellRect]) {
+    self.grid = grid
+    self.cells = cells
+    needsDisplay = true
+  }
+
+  override func draw(_ dirtyRect: NSRect) {
+    guard let g = grid else { return }
+    let gap = max(1, (g.cellH * tuiRowGapFraction).rounded())
+    tuiBackground.setFill()
+    for cell in cells {
+      let inner = cell.inner
+      guard inner.w > 0, inner.h > 0 else { continue }
+      for row in 0..<inner.h {
+        let band = g.rect(col: inner.col, row: inner.row + row, w: inner.w, h: 1)
+        NSRect(x: band.minX, y: band.maxY - gap, width: band.width, height: gap).fill()
+      }
+    }
+  }
+}
+
 /// Covers "Power: … / Total …" text but keeps the outer box's top border line.
 final class TitleMaskView: NSView {
   var lineY: CGFloat = 0
@@ -134,7 +169,7 @@ final class TitleMaskView: NSView {
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
   override func draw(_ dirtyRect: NSRect) {
-    NSColor.black.setFill()
+    tuiBackground.setFill()
     bounds.fill()
     guard bounds.width > 2 else { return }
     tuiGreen.setStroke()
@@ -153,6 +188,8 @@ final class MetricPanelView: NSView {
 
   private let kind: Kind
   private var title = ""
+  /// Optional right-aligned title on the top border (e.g. battery on the Power panel).
+  private var titleRight = ""
   private var history: [Double] = []
   private var rawHistory: [Double] = []
   private let maxPoints = 128
@@ -179,12 +216,21 @@ final class MetricPanelView: NSView {
   }
 
   func updateTemperature(current: Double, avg: Double, maxT: Double) {
-    title = String(format: " Temp %.1f°C (%.1f, %.1f) ", current, avg, maxT)
-    push(current, scaleMax: max(maxT, 90))
+    let currentF = fahrenheit(fromCelsius: current)
+    let avgF = fahrenheit(fromCelsius: avg)
+    let maxF = fahrenheit(fromCelsius: maxT)
+    title = String(format: " Temp %.1f°F (%.1f, %.1f) ", currentF, avgF, maxF)
+    // 194°F is the old 90°C floor, so the graph doesn't sit at full height.
+    push(currentF, scaleMax: max(maxF, 194))
   }
 
-  func updatePower(watts: Double, avg: Double, maxW: Double) {
+  func updatePower(watts: Double, avg: Double, maxW: Double, batteryC: Double = 0) {
     title = String(format: " Power %.2fW (%.2f, %.2f) ", watts, avg, maxW)
+    if batteryC > 1 {
+      titleRight = String(format: " Bat %.1f°F ", fahrenheit(fromCelsius: batteryC))
+    } else {
+      titleRight = ""
+    }
     push(watts, scaleMax: max(maxW, watts, 0.5))
   }
 
@@ -197,7 +243,7 @@ final class MetricPanelView: NSView {
   }
 
   override func draw(_ dirtyRect: NSRect) {
-    NSColor.black.setFill()
+    tuiBackground.setFill()
     bounds.fill()
     guard let g = grid, cell.w >= 3, cell.h >= 2 else { return }
 
@@ -218,30 +264,39 @@ final class MetricPanelView: NSView {
     tuiGreen.setStroke()
     path.stroke()
 
-    // Title on the top border starting at col+1 (ratatui title_top).
-    if !title.isEmpty {
-      let attrs: [NSAttributedString.Key: Any] = [
-        .font: g.font,
-        .foregroundColor: tuiGreen,
-      ]
-      let maxChars = max(cell.w - 2, 0)
-      let text = String(title.prefix(maxChars))
+    // Titles on the top border (ratatui title_top left / right).
+    let attrs: [NSAttributedString.Key: Any] = [
+      .font: g.font,
+      .foregroundColor: tuiGreen,
+    ]
+    let topRowY = b.maxY - ch
+    let baseline = topRowY + g.baselineOffset
+    let innerChars = max(cell.w - 2, 0)
+    let rightText: String = {
+      guard !titleRight.isEmpty else { return "" }
+      return String(titleRight.prefix(innerChars))
+    }()
+    let leftBudget = max(innerChars - rightText.count, 0)
+    let leftText = String(title.prefix(leftBudget))
+
+    func drawTitle(_ text: String, rightAligned: Bool) {
+      guard !text.isEmpty, let ctx = NSGraphicsContext.current?.cgContext else { return }
       let nchars = CGFloat(text.count)
-      let topRowY = b.maxY - ch
-      let textRect = NSRect(x: b.minX + cw, y: topRowY, width: nchars * cw, height: ch)
-      NSColor.black.setFill()
+      let x = rightAligned
+        ? b.maxX - cw - nchars * cw
+        : b.minX + cw
+      let textRect = NSRect(x: x, y: topRowY, width: nchars * cw, height: ch)
+      tuiBackground.setFill()
       textRect.fill()
-      // Draw on the exact baseline SwiftTerm uses for this row.
-      let baseline = topRowY + g.baselineOffset
-      if let ctx = NSGraphicsContext.current?.cgContext {
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))
-        ctx.saveGState()
-        ctx.textMatrix = .identity
-        ctx.textPosition = CGPoint(x: textRect.minX, y: baseline)
-        CTLineDraw(line, ctx)
-        ctx.restoreGState()
-      }
+      let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs))
+      ctx.saveGState()
+      ctx.textMatrix = .identity
+      ctx.textPosition = CGPoint(x: textRect.minX, y: baseline)
+      CTLineDraw(line, ctx)
+      ctx.restoreGState()
     }
+    drawTitle(leftText, rightAligned: false)
+    drawTitle(rightText, rightAligned: true)
 
     // Sparkline inside the border: one column per sample, right-to-left.
     let innerCols = cell.w - 2
@@ -251,14 +306,24 @@ final class MetricPanelView: NSView {
     let innerY = b.minY + ch
     let innerH = CGFloat(innerRows) * ch
     let innerRight = innerX + CGFloat(innerCols) * cw
+    // One band per terminal row, with a gap so the graph reads as macmon's striped blocks.
+    let rowGap = max(1, (ch * tuiRowGapFraction).rounded())
+    let band = max(ch - rowGap, 1)
     tuiGreen.setFill()
     for (i, v) in history.enumerated() where i < innerCols {
-      // Quantize like NINE_LEVELS bar set (1/8 cell steps).
       let eighths = (v * Double(innerRows) * 8).rounded()
       guard eighths > 0 else { continue }
-      let h = CGFloat(eighths) / 8 * ch
+      let fullRows = min(Int(eighths) / 8, innerRows)
+      let partial = CGFloat(Int(eighths) % 8) / 8
       let x = innerRight - CGFloat(i + 1) * cw
-      NSBezierPath(rect: NSRect(x: x, y: innerY, width: cw, height: min(h, innerH))).fill()
+      for row in 0..<fullRows {
+        let y = innerY + CGFloat(row) * ch
+        NSBezierPath(rect: NSRect(x: x, y: y, width: cw, height: band)).fill()
+      }
+      if partial > 0.01, fullRows < innerRows {
+        let y = innerY + CGFloat(fullRows) * ch
+        NSBezierPath(rect: NSRect(x: x, y: y, width: cw, height: max(band * partial, 1))).fill()
+      }
     }
   }
 }
@@ -268,6 +333,12 @@ final class BottomSectionChrome {
   let titleMask = TitleMaskView(frame: .zero)
   let tempPanel = MetricPanelView(kind: .temperature)
   let powerPanel = MetricPanelView(kind: .power)
+  /// Covers macmon's stuck "CPU 0.00W …" on the CPU box (fans hide that sparkline).
+  let cpuPowerPatch = GridTextPatch(frame: .zero)
+  /// Covers macmon's right-aligned "54.2°C" on the CPU box.
+  let cpuTempPatch = GridTextPatch(frame: .zero)
+  private let cpuTempWidth = 10
+  private var cpuPowerWidth = 28
 
   private var tempAvg = 0.0
   private var tempMax = 0.0
@@ -275,6 +346,9 @@ final class BottomSectionChrome {
   private var powerAvg = 0.0
   private var powerMax = 0.0
   private var powerSamples = 0
+  private var cpuPowerAvg = 0.0
+  private var cpuPowerMax = 0.0
+  private var cpuPowerSamples = 0
 
   private(set) var grid: TerminalGrid?
   private(set) var layout: TuiBottomLayout?
@@ -283,6 +357,17 @@ final class BottomSectionChrome {
     root.addSubview(tempPanel)
     root.addSubview(powerPanel)
     root.addSubview(titleMask)
+    root.addSubview(cpuPowerPatch)
+    root.addSubview(cpuTempPatch)
+  }
+
+  /// When false, macmon's own Power / CPU / GPU / ANE band stays visible.
+  func setVisible(_ visible: Bool) {
+    tempPanel.isHidden = !visible
+    powerPanel.isHidden = !visible
+    titleMask.isHidden = !visible
+    cpuPowerPatch.isHidden = !visible
+    cpuTempPatch.isHidden = !visible
   }
 
   /// Returns the inner CPU cell rect (for the fan overlay), or nil if unknown.
@@ -292,6 +377,8 @@ final class BottomSectionChrome {
       tempPanel.frame = .zero
       powerPanel.frame = .zero
       titleMask.frame = .zero
+      cpuPowerPatch.frame = .zero
+      cpuTempPatch.frame = .zero
       self.grid = nil
       self.layout = nil
       return nil
@@ -309,21 +396,55 @@ final class BottomSectionChrome {
     titleMask.lineY = g.cellH / 2
     titleMask.needsDisplay = true
 
+    // Left title: live CPU watts from metrics pipe (macmon 0.7.2 often sticks at 0).
+    cpuPowerWidth = max(min(l.cpu.w - 2 - cpuTempWidth - 1, 30), 12)
+    cpuPowerPatch.font = g.font
+    cpuPowerPatch.baselineOffset = g.baselineOffset
+    cpuPowerPatch.frame = g.rect(col: l.cpu.col + 1, row: l.cpu.row, w: cpuPowerWidth, h: 1)
+
+    // Right-aligned on the CPU box top border, ending one cell before the corner.
+    cpuTempPatch.font = g.font
+    cpuTempPatch.baselineOffset = g.baselineOffset
+    let tempCol = l.cpu.col + l.cpu.w - 1 - cpuTempWidth
+    cpuTempPatch.frame = g.rect(col: tempCol, row: l.cpu.row, w: cpuTempWidth, h: 1)
+
     let inner = l.cpu.inner
     return g.rect(col: inner.col, row: inner.row, w: inner.w, h: inner.h)
   }
 
   func update(_ m: LiveMetrics) {
-    let temp = max(m.cpuTemp, m.gpuTemp)
-    tempSamples += 1
-    tempAvg += (temp - tempAvg) / Double(tempSamples)
-    tempMax = max(tempMax, temp)
-    tempPanel.updateTemperature(current: temp, avg: tempAvg, maxT: tempMax)
+    // Package probes: TP*s (CPU/system) + TP*g (GPU). Panel shows the hotter one.
+    let temp = m.displayTemp
+    if temp > 1 {
+      tempSamples += 1
+      tempAvg += (temp - tempAvg) / Double(tempSamples)
+      tempMax = max(tempMax, temp)
+      tempPanel.updateTemperature(current: temp, avg: tempAvg, maxT: tempMax)
+      // CPU box corner: TP*s (falls back to hottest if only GPU-side is present).
+      let corner = m.packageS > 1 ? m.packageS : temp
+      let label = String(format: " %.1f°F ", fahrenheit(fromCelsius: corner))
+      let pad = String(repeating: " ", count: max(0, cpuTempWidth - label.count))
+      cpuTempPatch.text = pad + label
+    }
+
+    // Fan cell left title: real CPU package watts (pipe), not macmon's stuck 0.00W.
+    let cpuW = m.cpuPower
+    cpuPowerSamples += 1
+    cpuPowerAvg += (cpuW - cpuPowerAvg) / Double(cpuPowerSamples)
+    cpuPowerMax = max(cpuPowerMax, cpuW)
+    var powerLabel = String(format: " CPU %.2fW (%.2f, %.2f) ", cpuW, cpuPowerAvg, cpuPowerMax)
+    if powerLabel.count > cpuPowerWidth {
+      powerLabel = String(format: " CPU %.2fW ", cpuW)
+    }
+    if powerLabel.count < cpuPowerWidth {
+      powerLabel += String(repeating: " ", count: cpuPowerWidth - powerLabel.count)
+    }
+    cpuPowerPatch.text = String(powerLabel.prefix(cpuPowerWidth))
 
     let watts = m.sysPower > 0 ? m.sysPower : m.allPower
     powerSamples += 1
     powerAvg += (watts - powerAvg) / Double(powerSamples)
     powerMax = max(powerMax, watts)
-    powerPanel.updatePower(watts: watts, avg: powerAvg, maxW: powerMax)
+    powerPanel.updatePower(watts: watts, avg: powerAvg, maxW: powerMax, batteryC: m.batteryTemp)
   }
 }

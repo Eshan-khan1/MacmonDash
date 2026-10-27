@@ -40,9 +40,11 @@ enum AppMenu {
     // Window
     let windowItem = NSMenuItem()
     let window = NSMenu(title: "Window")
+    window.addItem(withTitle: "Show Dashboard", action: #selector(AppDelegate.showMainWindow(_:)), keyEquivalent: "1")
+    window.addItem(.separator())
     window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
     window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
-    window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+    window.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
     windowItem.submenu = window
     main.addItem(windowItem)
     NSApp.windowsMenu = window

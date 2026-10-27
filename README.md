@@ -10,7 +10,7 @@ A native macOS window around [macmon](https://github.com/vladkens/macmon) — th
 
 - **Live CPU / GPU / RAM / power / temperature** — the real macmon TUI, rendered in a resizable native window (SwiftTerm), pixel-aligned overlays on its grid.
 - **Fan control** — two sliders set fan speed through the SMC. Fans go back to automatic when you quit, and the helper returns them to automatic on its own if the app ever stops responding.
-- **Heat-aware fan icons** — green normally, yellow from 70 °C, red from 85 °C.
+- **Heat-aware fan icons** — green normally, yellow from 158 °F, red from 185 °F.
 - **CLEAN** — stops idle hidden background services (Siri, Spotlight indexers, Photos analysis, QuickLook thumbnails, …) that launchd restarts on demand, then flushes the file cache. It never quits a visible app.
 - Keyboard: `q` quit · `c` colour · `v` view · `-`/`+` sampling interval (macmon's own keys) · `⌘0` all fans automatic.
 
