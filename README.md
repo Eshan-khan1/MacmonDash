@@ -2,7 +2,7 @@
 
 [![Download for Mac](https://img.shields.io/badge/-Download%20for%20Mac-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg)
 
-[Apple Silicon · macOS 14 or later · Download the app](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg)
+## [Apple Silicon · macOS 14 or later · Download the app](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg)
 
 A native macOS window around [macmon](https://github.com/vladkens/macmon) — the Apple Silicon performance monitor — with the things the terminal version can't do: **fan control sliders**, temperature-colored fan icons, Temp/Power history panels, and a one-click **CLEAN** button that frees RAM without closing any of your apps.
 
