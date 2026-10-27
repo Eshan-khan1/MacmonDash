@@ -2,6 +2,8 @@
 # Build a distributable MacmonDash release:
 #   dist/MacmonDash-<version>.zip   (ditto, Finder-compatible, keeps codesign)
 #   dist/MacmonDash-<version>.dmg   (drag-to-Applications image)
+#   dist/MacmonDash.dmg             (same image, stable name for the README button)
+#   dist/MacmonDash.zip             (same archive, stable name)
 #   dist/SHA256SUMS.txt
 #
 # Usage: ./Scripts/make-release.sh [version]     (default 1.0.0)
@@ -50,8 +52,14 @@ EOF
 hdiutil create -volname "${APP_NAME} ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO -quiet "$DMG"
 rm -rf "$STAGE"
 
+# Stable names so the README can link releases/latest/download/MacmonDash.dmg
+cp "$DMG" "$ROOT/dist/${APP_NAME}.dmg"
+cp "$ZIP" "$ROOT/dist/${APP_NAME}.zip"
+
 echo "==> Checksums"
-( cd "$ROOT/dist" && shasum -a 256 "$(basename "$ZIP")" "$(basename "$DMG")" | tee SHA256SUMS.txt )
+( cd "$ROOT/dist" && shasum -a 256 \
+    "$(basename "$ZIP")" "$(basename "$DMG")" \
+    "${APP_NAME}.zip" "${APP_NAME}.dmg" | tee SHA256SUMS.txt )
 
 echo "Done:"
-ls -la "$ZIP" "$DMG"
+ls -la "$ZIP" "$DMG" "$ROOT/dist/${APP_NAME}.dmg" "$ROOT/dist/${APP_NAME}.zip"
