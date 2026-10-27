@@ -98,6 +98,8 @@ struct TuiBottomLayout {
 /// Replicates macmon's ratatui layout for the top band (CPU / RAM / GPU boxes).
 struct TuiTopLayout {
   let outer: CellRect   // rows[0]
+  let cpuLeft: CellRect  // iarea[0] left half — lowest CPU tier (E on M1–M4)
+  let cpuRight: CellRect // iarea[0] right half — highest CPU tier (P on M1–M4)
   let ram: CellRect     // iarea[1] left half (RAM/SWAP box)
   let gpu: CellRect     // iarea[1] right half
 
@@ -108,11 +110,15 @@ struct TuiTopLayout {
     let inner = outer.inner
     // Vertical Fill(1) ×2 inside the outer block
     let mid = inner.row + r(Double(inner.h) / 2.0)
+    let row1 = CellRect(col: inner.col, row: inner.row, w: inner.w, h: mid - inner.row)
     let row2 = CellRect(col: inner.col, row: mid, w: inner.w, h: inner.row + inner.h - mid)
     // Horizontal Fill(1) ×2
-    let b = row2.col + r(Double(row2.w) / 2.0)
-    ram = CellRect(col: row2.col, row: row2.row, w: b - row2.col, h: row2.h)
-    gpu = CellRect(col: b, row: row2.row, w: row2.col + row2.w - b, h: row2.h)
+    let b1 = row1.col + r(Double(row1.w) / 2.0)
+    cpuLeft = CellRect(col: row1.col, row: row1.row, w: b1 - row1.col, h: row1.h)
+    cpuRight = CellRect(col: b1, row: row1.row, w: row1.col + row1.w - b1, h: row1.h)
+    let b2 = row2.col + r(Double(row2.w) / 2.0)
+    ram = CellRect(col: row2.col, row: row2.row, w: b2 - row2.col, h: row2.h)
+    gpu = CellRect(col: b2, row: row2.row, w: row2.col + row2.w - b2, h: row2.h)
   }
 }
 

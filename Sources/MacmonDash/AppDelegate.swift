@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var sawFirstSample = false
   private let ramButton = RamCleanButton(frame: .zero)
   private let ramStatus = RamStatusLabel(frame: .zero)
+  private let cpuLeftTitle = GridTextPatch(frame: .zero)
+  private let cpuRightTitle = GridTextPatch(frame: .zero)
+  private let cpuHeaderPatch = GridTextPatch(frame: .zero)
+  private var clusterFix = ClusterCorrection.none
   /// User slider targets (0…1). When > 0.05, SMC manual mode is active.
   private var level0: Double = 0
   private var level1: Double = 0
@@ -91,6 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     ramButton.onClick = { [weak self] in self?.freeRam() }
     content.addSubview(ramStatus)
     content.addSubview(ramButton)
+    content.addSubview(cpuLeftTitle)
+    content.addSubview(cpuRightTitle)
+    content.addSubview(cpuHeaderPatch)
 
     let window = ResizableMacmonWindow(
       contentRect: NSRect(x: 0, y: 0, width: 920, height: 580),
@@ -146,6 +153,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
       guard let self else { return }
       self.helperSetup.showWelcomeIfNeeded(window: self.window)
+    }
+
+    ClusterLabels.load { [weak self] fix in
+      guard let self else { return }
+      self.clusterFix = fix
+      self.relayoutOverlay()
     }
   }
 
@@ -264,11 +277,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       ramStatus.frame = g.rect(col: inner.col, row: inner.row, w: inner.w, h: 1)
       ramStatus.font = g.font
       ramStatus.baselineOffset = g.baselineOffset
+
+      // macmon 0.7.2 mislabels clusters on macOS 27. Titles sit on the box
+      // border: one leading space, then "X-CPU".
+      placePatch(
+        cpuLeftTitle, text: clusterFix.leftTitle, width: ClusterCorrection.boxTitleWidth,
+        col: top.cpuLeft.col + 2, row: top.cpuLeft.row, grid: g
+      )
+      placePatch(
+        cpuRightTitle, text: clusterFix.rightTitle, width: ClusterCorrection.boxTitleWidth,
+        col: top.cpuRight.col + 2, row: top.cpuRight.row, grid: g
+      )
+      placePatch(
+        cpuHeaderPatch, text: clusterFix.headerText, width: clusterFix.headerWidth,
+        col: clusterFix.headerCol, row: top.outer.row, grid: g
+      )
     } else {
       ramButton.frame = .zero
       ramStatus.frame = .zero
+      cpuLeftTitle.frame = .zero
+      cpuRightTitle.frame = .zero
+      cpuHeaderPatch.frame = .zero
     }
     _ = root
+  }
+
+  private func placePatch(_ patch: GridTextPatch, text: String?, width: Int, col: Int, row: Int, grid g: TerminalGrid) {
+    guard let text, width > 0 else {
+      patch.frame = .zero
+      return
+    }
+    patch.font = g.font
+    patch.baselineOffset = g.baselineOffset
+    patch.text = text
+    patch.frame = g.rect(col: col, row: row, w: width, h: 1)
   }
 
   private func freeRam() {
