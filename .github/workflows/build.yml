@@ -8,12 +8,15 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    # SwiftTerm 1.99.x needs Swift 6.2+ → Xcode 26 image.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
       - name: Swift version
-        run: swift --version
+        run: |
+          xcodebuild -version
+          swift --version
 
       - name: Build release bundle (zip + dmg)
         run: |

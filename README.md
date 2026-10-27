@@ -62,7 +62,7 @@ cd MacmonDash
 ./Scripts/make-release.sh 1.0.0   # builds .zip + .dmg into dist/ (no install)
 ```
 
-Needs Xcode Command Line Tools (Swift 5.9+). The bundled `Resources/macmon` (0.7.2, TUI) and `macmon10` (0.10.0, JSON metrics for fans/temps/power) are unmodified upstream release binaries. The app icon is generated from the same bit-graphic fan the UI draws: `python3 Scripts/make-icon.py` (needs Pillow).
+Needs Xcode 26 / Swift 6.2 or newer (SwiftTerm 1.99 requires it). The bundled `Resources/macmon` (0.7.2, TUI) and `macmon10` (0.10.0, JSON metrics for fans/temps/power) are unmodified upstream release binaries. The app icon is generated from the same bit-graphic fan the UI draws: `python3 Scripts/make-icon.py` (needs Pillow).
 
 ## How it works
 

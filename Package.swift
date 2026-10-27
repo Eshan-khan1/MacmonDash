@@ -8,7 +8,9 @@ let package = Package(
     .executable(name: "MacmonDash", targets: ["MacmonDash"])
   ],
   dependencies: [
-    .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.2.5")
+    // Exact pin: the LocalProcessTerminalViewDelegate API differs between
+    // 1.20 and 1.99; 1.99.x needs Swift 6.2+ (Xcode 26).
+    .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.99.1")
   ],
   targets: [
     .executableTarget(
