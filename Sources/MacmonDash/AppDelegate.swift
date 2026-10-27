@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var window: ResizableMacmonWindow?
   private var terminal: LocalProcessTerminalView?
   private var fanOverlay: CPUFanOverlayView?
+  private let fanMenu = FanMenuBar()
   private var bottomChrome = BottomSectionChrome()
   private var metricsPipe = MetricsPipe()
   private let helperSetup = HelperSetup()
@@ -74,19 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     // Frame-based overlay (no Auto Layout) so it cannot lock window width.
     let overlay = CPUFanOverlayView(frame: .zero)
     overlay.autoresizingMask = []
-    overlay.onSlider0 = { [weak self] v in
-      guard let self else { return }
-      self.level0 = v
-      self.manual0 = v > 0.05
-      self.scheduleFanWrite(index: 0, level: v)
-    }
-    overlay.onSlider1 = { [weak self] v in
-      guard let self else { return }
-      self.level1 = v
-      self.manual1 = v > 0.05
-      self.scheduleFanWrite(index: 1, level: v)
-    }
+    overlay.onSlider0 = { [weak self] v in self?.userMovedSlider(index: 0, level: v) }
+    overlay.onSlider1 = { [weak self] v in self?.userMovedSlider(index: 1, level: v) }
     self.fanOverlay = overlay
+    fanMenu.install()
+    fanMenu.overlay.onSlider0 = { [weak self] v in self?.userMovedSlider(index: 0, level: v) }
+    fanMenu.overlay.onSlider1 = { [weak self] v in self?.userMovedSlider(index: 1, level: v) }
     // Temp (middle) + Power (right) over macmon; fans in CPU cell on top.
     bottomChrome.install(on: content)
     content.addSubview(overlay, positioned: .above, relativeTo: bottomChrome.powerPanel)
@@ -204,6 +198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     manual0 = false; manual1 = false
     fanOverlay?.slider0.value = 0
     fanOverlay?.slider1.value = 0
+    fanMenu.overlay.slider0.value = 0
+    fanMenu.overlay.slider1.value = 0
     guard wasManual else { return }
     DispatchQueue.global(qos: .userInitiated).async {
       FanPrivileged.setAutoSilently(fanIndex: 0)
@@ -346,7 +342,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       if !self.sawFirstSample {
         self.sawFirstSample = true
         // Fanless Macs (MacBook Air): hide sliders, say so.
-        self.fanOverlay?.hasFans = !fans.isEmpty
+        let present = !fans.isEmpty
+        self.fanOverlay?.hasFans = present
+        self.fanMenu.overlay.hasFans = present
       }
       if fans.count > 0, fans[0].maxRpm > 0 { self.maxRpm0 = fans[0].maxRpm }
       if fans.count > 1, fans[1].maxRpm > 0 {
@@ -354,15 +352,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       } else if fans.count == 1, fans[0].maxRpm > 0 {
         self.maxRpm1 = fans[0].maxRpm
       }
-      self.fanOverlay?.update(
-        fans: fans,
-        manual0: self.manual0 ? self.level0 : nil,
-        manual1: self.manual1 ? self.level1 : nil,
-        tempC: max(m.cpuTemp, m.gpuTemp)
-      )
+      let manual0 = self.manual0 ? self.level0 : nil
+      let manual1 = self.manual1 ? self.level1 : nil
+      let tempC = max(m.cpuTemp, m.gpuTemp)
+      self.fanOverlay?.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
+      self.fanMenu.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
       self.bottomChrome.update(m)
     }
     metricsPipe.start(macmon10Path: path)
+  }
+
+  /// Either surface (window or menu bar) moved a fan slider.
+  private func userMovedSlider(index: Int, level: Double) {
+    if index == 0 {
+      level0 = level
+      manual0 = level > 0.05
+      fanOverlay?.slider0.applyExternal(level)
+      fanMenu.overlay.slider0.applyExternal(level)
+    } else {
+      level1 = level
+      manual1 = level > 0.05
+      fanOverlay?.slider1.applyExternal(level)
+      fanMenu.overlay.slider1.applyExternal(level)
+    }
+    scheduleFanWrite(index: index, level: level)
   }
 
   /// Debounced SMC write via the root fan helper. The first manual move asks
@@ -414,8 +427,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   }
 
   private func revertSlider(index: Int) {
-    if index == 0 { level0 = 0; manual0 = false; fanOverlay?.slider0.value = 0 }
-    else { level1 = 0; manual1 = false; fanOverlay?.slider1.value = 0 }
+    if index == 0 {
+      level0 = 0; manual0 = false
+      fanOverlay?.slider0.value = 0
+      fanMenu.overlay.slider0.value = 0
+    } else {
+      level1 = 0; manual1 = false
+      fanOverlay?.slider1.value = 0
+      fanMenu.overlay.slider1.value = 0
+    }
   }
 
   private func scheduleStart() {

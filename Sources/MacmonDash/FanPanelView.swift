@@ -10,52 +10,75 @@ private func tuiFont(size: CGFloat) -> NSFont {
 }
 
 /// Vertical slider — track + fill + thumb.
+/// The thumb is the user's target. Live RPM must not move it.
 final class VerticalFanSlider: NSView {
-  var value: Double = 0 { didSet { needsDisplay = true } }
+  var value: Double = 0 { didSet { if value != oldValue { needsDisplay = true } } }
   var onChange: ((Double) -> Void)?
-  override var isFlipped: Bool { true }
+  private(set) var isTracking = false
+
+  /// Move the thumb from a metrics update. Ignored while the user is dragging.
+  func applyExternal(_ newValue: Double) {
+    guard !isTracking, abs(newValue - value) > 0.01 else { return }
+    value = min(max(newValue, 0), 1)
+  }
 
   override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
   override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
   override func draw(_ dirtyRect: NSRect) {
-    let midX = bounds.midX
-    let top: CGFloat = 3
-    let bottom = bounds.height - 3
+    let midX = (bounds.midX * scale).rounded() / scale
+    let inset: CGFloat = 6
+    let span = max(bounds.height - inset * 2, 1)
+    let thumbY = ((inset + CGFloat(value) * span) * scale).rounded() / scale
+
     let track = NSBezierPath()
-    track.move(to: NSPoint(x: midX, y: top))
-    track.line(to: NSPoint(x: midX, y: bottom))
+    track.move(to: NSPoint(x: midX, y: inset))
+    track.line(to: NSPoint(x: midX, y: bounds.height - inset))
     fanGreen.withAlphaComponent(0.35).setStroke()
     track.lineWidth = 3
     track.stroke()
 
-    let fillH = CGFloat(value) * (bottom - top)
-    if fillH > 0.5 {
+    if thumbY - inset > 0.5 {
       let fill = NSBezierPath()
-      fill.move(to: NSPoint(x: midX, y: bottom))
-      fill.line(to: NSPoint(x: midX, y: bottom - fillH))
+      fill.move(to: NSPoint(x: midX, y: inset))
+      fill.line(to: NSPoint(x: midX, y: thumbY))
       fanGreen.setStroke()
-      fill.lineWidth = 4
+      fill.lineWidth = 3
       fill.stroke()
     }
 
-    let y = bottom - CGFloat(value) * (bottom - top)
-    let thumb = NSBezierPath()
-    thumb.move(to: NSPoint(x: midX - 8, y: y))
-    thumb.line(to: NSPoint(x: midX + 8, y: y))
-    fanGreen.setStroke()
-    thumb.lineWidth = 2.5
-    thumb.stroke()
+    fanGreen.setFill()
+    NSBezierPath(roundedRect: NSRect(x: midX - 7, y: thumbY - 2, width: 14, height: 4), xRadius: 1, yRadius: 1).fill()
   }
 
-  override func mouseDown(with event: NSEvent) { update(from: event) }
-  override func mouseDragged(with event: NSEvent) { update(from: event) }
+  private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
+
+  override func mouseDown(with event: NSEvent) {
+    isTracking = true
+    update(from: event)
+    guard let window else { isTracking = false; return }
+    // One tracking loop so the drag survives leaving the slider and the menu-bar popover.
+    window.trackEvents(
+      matching: [.leftMouseDragged, .leftMouseUp],
+      timeout: .greatestFiniteMagnitude,
+      mode: .eventTracking
+    ) { event, stop in
+      guard let event else { return }
+      self.update(from: event)
+      if event.type == .leftMouseUp {
+        self.isTracking = false
+        stop.pointee = true
+      }
+    }
+  }
 
   private func update(from event: NSEvent) {
     let p = convert(event.locationInWindow, from: nil)
-    let top: CGFloat = 3
-    let bottom = bounds.height - 3
-    value = min(max(1 - Double((p.y - top) / max(bottom - top, 1)), 0), 1)
+    let inset: CGFloat = 6
+    let span = max(bounds.height - inset * 2, 1)
+    let next = min(max(Double((p.y - inset) / span), 0), 1)
+    guard abs(next - value) > 0.004 else { return }
+    value = next
     onChange?(value)
   }
 }
@@ -128,6 +151,19 @@ final class FanIconView: NSView {
 
   required init?(coder: NSCoder) { fatalError() }
   deinit { timer?.invalidate() }
+
+  /// Still frame of this fan for the menu bar. Transparent background, same pixels.
+  static func menuBarImage(heat: FanHeat, pointSize: CGFloat = 18) -> NSImage {
+    let view = FanIconView(frame: NSRect(x: 0, y: 0, width: pointSize, height: pointSize))
+    view.timer?.invalidate()
+    view.timer = nil
+    view.heat = heat
+    view.spinning = false
+    return NSImage(size: view.bounds.size, flipped: false) { rect in
+      view.draw(rect)
+      return true
+    }
+  }
   override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
   override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
@@ -248,12 +284,11 @@ final class FanColumnView: NSView {
 
   func configure(rpm: Int, maxRpm: Int, manualLevel: Double?) {
     let live = maxRpm > 0 ? min(max(Double(rpm) / Double(maxRpm), 0), 1) : 0
-    let frac = manualLevel.map { max($0, live) } ?? live
-    let pct = Int((frac * 100).rounded())
-    // Spacing/format closer to macmon labels (e.g. "25.23 / 32.0 GB")
+    // Percent matches the slider when the user is in control. RPM stays the live reading.
+    let pct = Int(((manualLevel ?? live) * 100).rounded())
     stats.stringValue = "\(rpm)rpm \(pct)%"
     icon.linked = maxRpm > 0
-    icon.rpmFraction = frac
+    icon.rpmFraction = live
     icon.spinning = rpm > 40 || (manualLevel ?? 0) > 0.05
   }
 }
@@ -315,7 +350,7 @@ final class CPUFanOverlayView: NSView {
   override func layout() {
     super.layout()
     let b = bounds
-    let sliderW: CGFloat = 18
+    let sliderW: CGFloat = 28
     let gap: CGFloat = 6
     let fanW = max((b.width - sliderW * 2 - gap * 5) / 2, 44)
     let groupW = fanW * 2 + sliderW * 2 + gap * 3
@@ -342,15 +377,12 @@ final class CPUFanOverlayView: NSView {
     guard hasFans else { return }
     if fans.count > 0 {
       left.configure(rpm: fans[0].rpm, maxRpm: fans[0].maxRpm, manualLevel: manual0)
-      let live = fans[0].maxRpm > 0 ? Double(fans[0].rpm) / Double(fans[0].maxRpm) : 0
-      let t = manual0 ?? live
-      if abs(slider0.value - t) > 0.02 { slider0.value = t }
+      // Auto rests at the bottom. A manual target stays put — live RPM does not pull the thumb.
+      slider0.applyExternal(manual0 ?? 0)
     }
     if fans.count > 1 {
       right.configure(rpm: fans[1].rpm, maxRpm: fans[1].maxRpm, manualLevel: manual1)
-      let live = fans[1].maxRpm > 0 ? Double(fans[1].rpm) / Double(fans[1].maxRpm) : 0
-      let t = manual1 ?? live
-      if abs(slider1.value - t) > 0.02 { slider1.value = t }
+      slider1.applyExternal(manual1 ?? 0)
     } else if fans.count == 1 {
       right.configure(rpm: fans[0].rpm, maxRpm: fans[0].maxRpm, manualLevel: manual1)
     }
