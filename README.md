@@ -92,3 +92,7 @@ Needs Xcode 26 / Swift 6.2 or newer (SwiftTerm 1.99 requires it). The bundled `R
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Shipping checklist
+
+See [CHECKLIST.md](CHECKLIST.md) for the real-app backlog (permissions, support, notarization, privacy, and more).
