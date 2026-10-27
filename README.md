@@ -2,7 +2,7 @@
 
 [![Download for Mac](https://img.shields.io/badge/-Download%20for%20Mac-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg)
 
-Apple Silicon · macOS 14 or later · [other downloads](https://github.com/Eshan-khan1/MacmonDash/releases/latest)
+[Apple Silicon · macOS 14 or later · Download the app](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg)
 
 A native macOS window around [macmon](https://github.com/vladkens/macmon) — the Apple Silicon performance monitor — with the things the terminal version can't do: **fan control sliders**, temperature-colored fan icons, Temp/Power history panels, and a one-click **CLEAN** button that frees RAM without closing any of your apps.
 
@@ -21,7 +21,7 @@ A native macOS window around [macmon](https://github.com/vladkens/macmon) — th
 
 ## Install
 
-1. Click **Download for Mac** at the top of this page. That saves `MacmonDash.dmg` (the latest release). A `.zip` of the same build is on the [releases page](https://github.com/Eshan-khan1/MacmonDash/releases/latest).
+1. Click **Download for Mac**, or the line under it. Either one saves `MacmonDash.dmg` without leaving this page. A `.zip` of the same build: [MacmonDash.zip](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.zip).
 2. Open the disk image and drag **MacmonDash** into **Applications**.
 3. **First launch:** MacmonDash is open source and not notarized by Apple (no paid developer account), so macOS blocks the first open. Either
    - right-click (Control-click) the app → **Open** → **Open**, or
