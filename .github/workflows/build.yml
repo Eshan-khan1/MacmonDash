@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build release bundle (zip + dmg)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || VERSION="0.0.0-ci"
+          ./Scripts/make-release.sh "$VERSION"
+
+      - name: Verify bundle
+        run: |
+          codesign --verify --deep --strict dist/MacmonDash.app
+          plutil -lint dist/MacmonDash.app/Contents/Info.plist
+          dist/MacmonDash.app/Contents/Resources/macmon --version
+          dist/MacmonDash.app/Contents/Resources/macmon10 --version
+          # Helper protocol smoke test (unprivileged daemon on a temp socket)
+          MACMONDASH_FAN_SOCKET=/tmp/mmd.sock dist/MacmonDash.app/Contents/MacOS/MacmonDash --fan-daemon &
+          sleep 1
+          python3 - <<'PY'
+          import socket
+          s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect("/tmp/mmd.sock")
+          s.sendall(b"VERSION\n"); r = s.recv(64); print(r); assert r.startswith(b"OK 2")
+          PY
+          kill %1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacmonDash
+          path: |
+            dist/*.zip
+            dist/*.dmg
+            dist/SHA256SUMS.txt
