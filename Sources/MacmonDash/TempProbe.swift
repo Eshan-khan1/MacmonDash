@@ -43,9 +43,20 @@ struct PackageTemps: Equatable {
   var isValid: Bool { tps > 1 || tpg > 1 }
 }
 
+private struct NamedService {
+  let service: HIDService
+  let kind: Kind
+  enum Kind { case tps, tpg, battery }
+}
+
 enum TempProbe {
   private static let lock = NSLock()
   private static var client: HIDClient?
+  /// Keep the CFArray alive so the service pointers inside stay valid.
+  private static var servicesArray: CFArray?
+  private static var cached: [NamedService] = []
+  private static var cacheAt: Date = .distantPast
+  private static let cacheTTL: TimeInterval = 30
 
   /// Blocking sample. Prefer calling off the main thread.
   static func sample() -> PackageTemps {
@@ -57,38 +68,24 @@ enum TempProbe {
     }
     guard let system = client else { return PackageTemps() }
 
-    let matching: [String: Any] = [
-      "PrimaryUsagePage": kHIDPage_AppleVendor,
-      "PrimaryUsage": kHIDUsage_AppleVendor_TemperatureSensor,
-    ]
-    _ = HIDClientSetMatching(system, matching as CFDictionary)
-    guard let services = HIDClientCopyServices(system)?.takeRetainedValue() else {
-      return PackageTemps()
+    if cached.isEmpty || Date().timeIntervalSince(cacheAt) > cacheTTL {
+      refreshCache(system)
     }
 
     var sVals: [Double] = []
     var gVals: [Double] = []
     var batVals: [Double] = []
-    let count = CFArrayGetCount(services)
-    for i in 0..<count {
-      guard let raw = CFArrayGetValueAtIndex(services, i) else { continue }
-      let service = HIDService(mutating: raw)
-      guard
-        let name = HIDServiceCopyProperty(service, "Product" as CFString)?
-          .takeRetainedValue() as? String
-      else { continue }
-      guard let event = HIDServiceCopyEvent(service, kIOHIDEventTypeTemperature, 0, 0) else {
+    for item in cached {
+      guard let event = HIDServiceCopyEvent(item.service, kIOHIDEventTypeTemperature, 0, 0) else {
         continue
       }
       let celsius = HIDEventGetFloatValue(event, kIOHIDEventTypeTemperature << 16)
       Unmanaged<CFTypeRef>.fromOpaque(event).release()
       guard celsius > 0, celsius <= 150 else { continue }
-      if name.hasPrefix("PMU TP") {
-        if name.hasSuffix("s") { sVals.append(celsius) }
-        else if name.hasSuffix("g") { gVals.append(celsius) }
-      } else if name.localizedCaseInsensitiveContains("gas gauge battery")
-                  || name.localizedCaseInsensitiveContains("battery") {
-        batVals.append(celsius)
+      switch item.kind {
+      case .tps: sVals.append(celsius)
+      case .tpg: gVals.append(celsius)
+      case .battery: batVals.append(celsius)
       }
     }
 
@@ -96,5 +93,40 @@ enum TempProbe {
       xs.isEmpty ? 0 : xs.reduce(0, +) / Double(xs.count)
     }
     return PackageTemps(tps: avg(sVals), tpg: avg(gVals), battery: avg(batVals))
+  }
+
+  private static func refreshCache(_ system: HIDClient) {
+    let matching: [String: Any] = [
+      "PrimaryUsagePage": kHIDPage_AppleVendor,
+      "PrimaryUsage": kHIDUsage_AppleVendor_TemperatureSensor,
+    ]
+    _ = HIDClientSetMatching(system, matching as CFDictionary)
+    guard let services = HIDClientCopyServices(system)?.takeRetainedValue() else {
+      servicesArray = nil
+      cached = []
+      cacheAt = Date()
+      return
+    }
+    servicesArray = services
+    var next: [NamedService] = []
+    let count = CFArrayGetCount(services)
+    next.reserveCapacity(min(count, 32))
+    for i in 0..<count {
+      guard let raw = CFArrayGetValueAtIndex(services, i) else { continue }
+      let service = HIDService(mutating: raw)
+      guard
+        let name = HIDServiceCopyProperty(service, "Product" as CFString)?
+          .takeRetainedValue() as? String
+      else { continue }
+      if name.hasPrefix("PMU TP") {
+        if name.hasSuffix("s") { next.append(NamedService(service: service, kind: .tps)) }
+        else if name.hasSuffix("g") { next.append(NamedService(service: service, kind: .tpg)) }
+      } else if name.localizedCaseInsensitiveContains("gas gauge battery")
+                  || name.localizedCaseInsensitiveContains("battery") {
+        next.append(NamedService(service: service, kind: .battery))
+      }
+    }
+    cached = next
+    cacheAt = Date()
   }
 }

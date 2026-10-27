@@ -34,7 +34,11 @@ struct LiveMetrics: Equatable {
 
 /// Shared refresh cadence for the TUI and the overlay metrics pipe (ms).
 enum MetricsCadence {
-  static let intervalMs = 1000
+  /// Dashboard visible — still light; macmon default is 1000.
+  static let foregroundMs = 2000
+  /// Menu-bar only — temp/fans need far less often.
+  static let backgroundMs = 4000
+  static var intervalMs = foregroundMs
 }
 
 /// Single macmon10 `pipe` reader for fans + power; merges TempProbe on the same tick.
@@ -44,17 +48,22 @@ final class MetricsPipe {
   private var buffer = Data()
   private let lock = NSLock()
   /// Serial enrichment so each UI tick is one complete snapshot (no out-of-order temps).
-  private let enrichQueue = DispatchQueue(label: "com.local.macmondash.metrics")
+  private let enrichQueue = DispatchQueue(label: "com.local.macmondash.metrics", qos: .utility)
   private var tick = 0
+  private var path: String?
+  private var intervalMs = MetricsCadence.foregroundMs
   var onUpdate: ((LiveMetrics) -> Void)?
 
-  func start(macmon10Path: String) {
-    stop()
+  func start(macmon10Path: String, intervalMs: Int = MetricsCadence.intervalMs) {
+    path = macmon10Path
+    self.intervalMs = max(intervalMs, 500)
+    MetricsCadence.intervalMs = self.intervalMs
+    stopProcessOnly()
     let out = Pipe()
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: macmon10Path)
-    // Same interval as the TUI so bars / fans / temp / power advance together.
-    proc.arguments = ["pipe", "-i", "\(MetricsCadence.intervalMs)"]
+    proc.arguments = ["pipe", "-i", "\(self.intervalMs)"]
+    proc.qualityOfService = .utility
     proc.standardOutput = out
     proc.standardError = FileHandle.nullDevice
     var env = ProcessInfo.processInfo.environment
@@ -76,7 +85,19 @@ final class MetricsPipe {
     stdout = out
   }
 
+  /// Switch sampling rate without dropping the onUpdate handler (e.g. window closed).
+  func setIntervalMs(_ ms: Int) {
+    let next = max(ms, 500)
+    guard next != intervalMs, let path else { return }
+    start(macmon10Path: path, intervalMs: next)
+  }
+
   func stop() {
+    path = nil
+    stopProcessOnly()
+  }
+
+  private func stopProcessOnly() {
     stdout?.fileHandleForReading.readabilityHandler = nil
     if let proc = process, proc.isRunning {
       proc.terminate()

@@ -137,9 +137,18 @@ final class GraphStripeOverlay: NSView {
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
   func place(grid: TerminalGrid?, cells: [CellRect]) {
+    let same =
+      self.grid?.cols == grid?.cols
+      && self.grid?.rows == grid?.rows
+      && self.grid?.cellW == grid?.cellW
+      && self.grid?.cellH == grid?.cellH
+      && self.cells.count == cells.count
+      && zip(self.cells, cells).allSatisfy {
+        $0.col == $1.col && $0.row == $1.row && $0.w == $1.w && $0.h == $1.h
+      }
     self.grid = grid
     self.cells = cells
-    needsDisplay = true
+    if !same { needsDisplay = true }
   }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -302,10 +311,8 @@ final class MetricPanelView: NSView {
     let innerCols = cell.w - 2
     let innerRows = cell.h - 2
     guard innerCols > 0, innerRows > 0, !history.isEmpty else { return }
-    let innerX = b.minX + cw
     let innerY = b.minY + ch
-    let innerH = CGFloat(innerRows) * ch
-    let innerRight = innerX + CGFloat(innerCols) * cw
+    let innerRight = b.minX + cw + CGFloat(innerCols) * cw
     // One band per terminal row, with a gap so the graph reads as macmon's striped blocks.
     let rowGap = max(1, (ch * tuiRowGapFraction).rounded())
     let band = max(ch - rowGap, 1)

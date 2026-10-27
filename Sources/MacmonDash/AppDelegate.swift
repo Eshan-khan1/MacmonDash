@@ -52,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private let helperSetup = HelperSetup()
   private var pingTimer: Timer?
   private var sawFirstSample = false
+  private var lastMetrics = LiveMetrics()
   private let ramButton = RamCleanButton(frame: .zero)
   private let ramStatus = RamStatusLabel(frame: .zero)
   private let cpuLeftTitle = GridTextPatch(frame: .zero)
@@ -273,10 +274,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       terminal?.terminate()
       started = false
     }
+    fanOverlay?.animationsEnabled = false
+    // Slow the metrics pipe — menu bar only needs a light pulse.
+    metricsPipe.setIntervalMs(MetricsCadence.backgroundMs)
   }
 
   @objc func showMainWindow(_ sender: Any?) {
     guard let window else { return }
+    metricsPipe.setIntervalMs(MetricsCadence.foregroundMs)
+    fanOverlay?.animationsEnabled = true
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
     if !started {
@@ -390,6 +396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     // Each callback is one full tick: fans + power + package/battery temps together.
     metricsPipe.onUpdate = { [weak self] m in
       guard let self else { return }
+      // Drop identical samples (common when idle) to avoid needless AppKit work.
+      if m == self.lastMetrics { return }
+      self.lastMetrics = m
       let fans = m.fans
       if !self.sawFirstSample {
         self.sawFirstSample = true
@@ -407,11 +416,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       let manual0 = self.manual0 ? self.level0 : nil
       let manual1 = self.manual1 ? self.level1 : nil
       let tempC = m.displayTemp
-      self.fanOverlay?.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
+      let dashboardUp = self.window?.isVisible == true
+      // Skip heavy dashboard redraws when only the menu bar is alive.
+      if dashboardUp {
+        self.fanOverlay?.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
+        self.bottomChrome.update(m)
+      }
       self.fanMenu.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
-      self.bottomChrome.update(m)
     }
-    metricsPipe.start(macmon10Path: path)
+    metricsPipe.start(macmon10Path: path, intervalMs: MetricsCadence.foregroundMs)
   }
 
   /// Either surface (window or menu bar) moved a fan slider.

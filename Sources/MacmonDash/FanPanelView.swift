@@ -124,7 +124,17 @@ enum FanHeat {
 
 final class FanIconView: NSView {
   var linked = false
-  var spinning = false { didSet { needsDisplay = true } }
+  var spinning = false {
+    didSet {
+      guard spinning != oldValue else { return }
+      needsDisplay = true
+      syncTimer()
+    }
+  }
+  /// When false, the animation timer is stopped (hidden window / closed popover).
+  var animationsEnabled = true {
+    didSet { if animationsEnabled != oldValue { syncTimer() } }
+  }
   var rpmFraction: Double = 0
   var heat: FanHeat = .normal {
     didSet { if heat != oldValue { needsDisplay = true } }
@@ -134,32 +144,50 @@ final class FanIconView: NSView {
   private var tickAccum = 0.0
   private let grid = 21
   private let bladeCount = 7
+  /// 30 fps while spinning; timer is off when idle (efficiency).
+  private let frameSeconds: TimeInterval = 1.0 / 30.0
 
   override init(frame: NSRect) {
     super.init(frame: frame)
     wantsLayer = true
     layer?.backgroundColor = NSColor.clear.cgColor
-    timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-      guard let self else { return }
-      let rate = self.spinning ? (1.0 + self.rpmFraction * 9.0) : (self.linked ? 0.4 : 0)
-      guard rate > 0 else { return }
-      self.tickAccum += rate / 30.0
-      if self.tickAccum >= 1 {
-        self.tickAccum -= 1
-        self.frameIndex = (self.frameIndex + 1) % 8
-        self.needsDisplay = true
-      }
-    }
   }
 
   required init?(coder: NSCoder) { fatalError() }
   deinit { timer?.invalidate() }
 
+  private func syncTimer() {
+    let want = spinning && animationsEnabled && window != nil
+    if want {
+      guard timer == nil else { return }
+      let t = Timer(timeInterval: frameSeconds, repeats: true) { [weak self] _ in
+        guard let self, self.spinning, self.animationsEnabled else { return }
+        let rate = 1.0 + self.rpmFraction * 9.0
+        self.tickAccum += rate * self.frameSeconds
+        if self.tickAccum >= 1 {
+          self.tickAccum -= 1
+          self.frameIndex = (self.frameIndex + 1) % 8
+          self.needsDisplay = true
+        }
+      }
+      RunLoop.main.add(t, forMode: .common)
+      timer = t
+    } else if let t = timer {
+      t.invalidate()
+      timer = nil
+      tickAccum = 0
+    }
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    syncTimer()
+  }
+
   /// Still frame of this fan for the menu bar. Transparent background, same pixels.
   static func menuBarImage(heat: FanHeat, pointSize: CGFloat = 18) -> NSImage {
     let view = FanIconView(frame: NSRect(x: 0, y: 0, width: pointSize, height: pointSize))
-    view.timer?.invalidate()
-    view.timer = nil
+    view.animationsEnabled = false
     view.heat = heat
     view.spinning = false
     return NSImage(size: view.bounds.size, flipped: false) { rect in
@@ -320,6 +348,14 @@ final class CPUFanOverlayView: NSView {
         col.icon.alphaValue = hasFans ? 1 : 0.35
       }
       needsLayout = true
+    }
+  }
+
+  /// Pause blade timers when the host window/popover is not on screen.
+  var animationsEnabled = true {
+    didSet {
+      left.icon.animationsEnabled = animationsEnabled
+      right.icon.animationsEnabled = animationsEnabled
     }
   }
 
