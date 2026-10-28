@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var startAttempts = 0
   private var termCols = 0
   private var termRows = 0
+  private var keyMonitor: Any?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     UserDefaults.standard.removeObject(forKey: "NSWindow Frame MacmonDashMain")
@@ -162,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     )
 
     NSApp.activate(ignoringOtherApps: true)
+    installMacmonKeySync()
     scheduleStart()
     startMetricsPipe()
     DispatchQueue.main.async { [weak self] in self?.relayoutOverlay() }
@@ -180,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       guard let self else { return }
       self.helperSetup.showWelcomeIfNeeded(window: self.window)
     }
+    // Optional GitHub Releases check (one GET). Silent unless a newer tag exists.
+    UpdateChecker.checkOnLaunch(window: window)
 
     ClusterLabels.load { [weak self] fix in
       guard let self else { return }
@@ -189,6 +193,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   }
 
   // MARK: - Menu actions
+
+  @objc func checkForUpdates(_ sender: Any?) {
+    UpdateChecker.check(manual: true, window: window)
+  }
 
   @objc func showAbout(_ sender: Any?) {
     let credits = NSMutableAttributedString(string: """
@@ -281,7 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
 
   @objc func showMainWindow(_ sender: Any?) {
     guard let window else { return }
-    metricsPipe.setIntervalMs(MetricsCadence.foregroundMs)
+    metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
     fanOverlay?.animationsEnabled = true
     window.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -424,7 +432,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       }
       self.fanMenu.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
     }
-    metricsPipe.start(macmon10Path: path, intervalMs: MetricsCadence.foregroundMs)
+    metricsPipe.start(macmon10Path: path, intervalMs: MetricsCadence.dashboardMs)
+  }
+
+  /// Keep overlays in lockstep with macmon’s `c` (color) and `-`/`+` (interval).
+  private func installMacmonKeySync() {
+    keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      guard let self else { return event }
+      guard self.window?.isKeyWindow == true, self.window?.isVisible == true else { return event }
+      let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      // Ctrl+C quits macmon; ⌘ shortcuts belong to the menu.
+      if mods.contains(.control) || mods.contains(.command) || mods.contains(.option) {
+        return event
+      }
+      guard let ch = event.charactersIgnoringModifiers, ch.count == 1 else { return event }
+      switch ch {
+      case "c", "C":
+        OverlayTheme.cycle()
+        self.refreshOverlayTheme()
+      case "-":
+        MetricsCadence.decDashboard()
+        self.metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
+      case "+", "=":
+        MetricsCadence.incDashboard()
+        self.metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
+      default:
+        break
+      }
+      return event
+    }
+  }
+
+  private func refreshOverlayTheme() {
+    bottomChrome.applyTheme()
+    fanOverlay?.applyTheme()
+    fanMenu.overlay.applyTheme()
+    ramButton.needsDisplay = true
+    ramStatus.needsDisplay = true
+    cpuLeftTitle.needsDisplay = true
+    cpuRightTitle.needsDisplay = true
+    cpuHeaderPatch.needsDisplay = true
   }
 
   /// Either surface (window or menu bar) moved a fan slider.
@@ -550,7 +597,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     // Match MetricsPipe cadence so TUI bars and overlay stats tick together.
     term.startProcess(
       executable: path,
-      args: ["-i", "\(MetricsCadence.intervalMs)"],
+      args: ["-i", "\(MetricsCadence.dashboardMs)"],
       environment: env,
       execName: "macmon"
     )
@@ -565,6 +612,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   }
 
   func applicationWillTerminate(_ notification: Notification) {
+    if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+    keyMonitor = nil
     pingTimer?.invalidate()
     if manual0 { FanPrivileged.setAutoSilently(fanIndex: 0) }
     if manual1 { FanPrivileged.setAutoSilently(fanIndex: 1) }

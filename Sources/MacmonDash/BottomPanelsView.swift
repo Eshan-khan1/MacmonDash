@@ -2,10 +2,29 @@ import AppKit
 
 /// Terminal.app “Clear Dark” — navy field and ANSI green from the reference screenshot.
 let tuiBackground = NSColor(srgbRed: 0.09838771145, green: 0.1138777476, blue: 0.152602838, alpha: 1)
-let tuiGreen = NSColor(srgbRed: 0.4241566305, green: 0.6672818346, blue: 0.4415227165, alpha: 1)
 let tuiText = NSColor(srgbRed: 0.8776108099, green: 0.8776108099, blue: 0.8776108099, alpha: 1)
 /// Dark gap between graph bands, as a fraction of one terminal row.
 let tuiRowGapFraction: CGFloat = 0.22
+
+/// Overlay accent that tracks macmon 0.7.2’s `c` color cycle (same ANSI order).
+enum OverlayTheme {
+  /// Green → Yellow → Red → Blue → Magenta → Cyan → Reset (default fg).
+  private static let accents: [NSColor] = [
+    NSColor(srgbRed: 108 / 255, green: 170 / 255, blue: 113 / 255, alpha: 1),
+    NSColor(srgbRed: 196 / 255, green: 172 / 255, blue: 98 / 255, alpha: 1),
+    NSColor(srgbRed: 180 / 255, green: 86 / 255, blue: 72 / 255, alpha: 1),
+    NSColor(srgbRed: 109 / 255, green: 150 / 255, blue: 180 / 255, alpha: 1),
+    NSColor(srgbRed: 189 / 255, green: 123 / 255, blue: 205 / 255, alpha: 1),
+    NSColor(srgbRed: 124 / 255, green: 203 / 255, blue: 205 / 255, alpha: 1),
+    tuiText,
+  ]
+  private(set) static var index = 0
+  static var accent: NSColor { accents[index] }
+  static func cycle() { index = (index + 1) % accents.count }
+}
+
+/// Current overlay / fan stroke color (follows `OverlayTheme`).
+var tuiGreen: NSColor { OverlayTheme.accent }
 
 /// Mirror of SwiftTerm's cell grid so overlays can sit exactly on TUI cells.
 struct TerminalGrid {
@@ -417,6 +436,15 @@ final class BottomSectionChrome {
 
     let inner = l.cpu.inner
     return g.rect(col: inner.col, row: inner.row, w: inner.w, h: inner.h)
+  }
+
+  /// Repaint after macmon’s `c` color cycle so borders/graphs match the TUI.
+  func applyTheme() {
+    titleMask.needsDisplay = true
+    tempPanel.needsDisplay = true
+    powerPanel.needsDisplay = true
+    cpuPowerPatch.needsDisplay = true
+    cpuTempPatch.needsDisplay = true
   }
 
   func update(_ m: LiveMetrics) {

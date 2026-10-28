@@ -1,8 +1,5 @@
 import AppKit
 
-/// Same green + mono face as the SwiftTerm / macmon TUI.
-private let fanGreen = tuiGreen
-
 private func tuiFont(size: CGFloat) -> NSFont {
   NSFont(name: "SF Mono", size: size)
     ?? NSFont(name: "Menlo", size: size)
@@ -34,7 +31,7 @@ final class VerticalFanSlider: NSView {
     let track = NSBezierPath()
     track.move(to: NSPoint(x: midX, y: inset))
     track.line(to: NSPoint(x: midX, y: bounds.height - inset))
-    fanGreen.withAlphaComponent(0.35).setStroke()
+    tuiGreen.withAlphaComponent(0.35).setStroke()
     track.lineWidth = 3
     track.stroke()
 
@@ -42,12 +39,12 @@ final class VerticalFanSlider: NSView {
       let fill = NSBezierPath()
       fill.move(to: NSPoint(x: midX, y: inset))
       fill.line(to: NSPoint(x: midX, y: thumbY))
-      fanGreen.setStroke()
+      tuiGreen.setStroke()
       fill.lineWidth = 3
       fill.stroke()
     }
 
-    fanGreen.setFill()
+    tuiGreen.setFill()
     NSBezierPath(roundedRect: NSRect(x: midX - 7, y: thumbY - 2, width: 14, height: 4), xRadius: 1, yRadius: 1).fill()
   }
 
@@ -277,7 +274,7 @@ final class FanColumnView: NSView {
     wantsLayer = true
     layer?.backgroundColor = NSColor.clear.cgColor
     for lab in [title, stats] {
-      lab.textColor = fanGreen
+      lab.textColor = tuiGreen
       lab.backgroundColor = .clear
       lab.drawsBackground = false
       lab.isBezeled = false
@@ -321,6 +318,12 @@ final class FanColumnView: NSView {
     icon.linked = maxRpm > 0
     icon.rpmFraction = live
     icon.spinning = rpm > 40 || (manualLevel ?? 0) > 0.05
+  }
+
+  func applyTheme() {
+    title.textColor = tuiGreen
+    stats.textColor = tuiGreen
+    icon.needsDisplay = true
   }
 }
 
@@ -369,7 +372,7 @@ final class CPUFanOverlayView: NSView {
     addSubview(slider0)
     addSubview(slider1)
     addSubview(right)
-    noFansLabel.textColor = fanGreen.withAlphaComponent(0.7)
+    noFansLabel.textColor = tuiGreen.withAlphaComponent(0.7)
     noFansLabel.font = tuiFont(size: 11)
     noFansLabel.alignment = .center
     noFansLabel.isHidden = true
@@ -407,6 +410,15 @@ final class CPUFanOverlayView: NSView {
     left.layoutSubtreeIfNeeded()
     right.layoutSubtreeIfNeeded()
     noFansLabel.frame = NSRect(x: 0, y: (b.height - 14) / 2, width: b.width, height: 14)
+  }
+
+  /// Refresh strokes / labels after macmon’s `c` color cycle.
+  func applyTheme() {
+    left.applyTheme()
+    right.applyTheme()
+    noFansLabel.textColor = tuiGreen.withAlphaComponent(0.7)
+    slider0.needsDisplay = true
+    slider1.needsDisplay = true
   }
 
   func update(fans: [FanReading], manual0: Double?, manual1: Double?, tempC: Double = 0) {

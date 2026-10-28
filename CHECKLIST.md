@@ -36,7 +36,7 @@ Production-readiness backlog for a real macOS utility. Status is relative to thi
 - [x] **Done** — Quit restores fans to automatic; helper watchdog returns fans to auto if the app stops pinging
 - [x] **Done** — **Remove Fan Helper…** from the app menu (and CLI uninstall)
 - [x] **Done** — Closing the dashboard keeps the menu-bar temp/fans; **Quit** fully exits
-- [ ] **Todo** — In-app update check or “What’s New” when a newer GitHub release exists
+- [x] **Done** — In-app update check against GitHub Releases (`UpdateChecker`; Help / MacmonDash → Check for Updates; silent prompt on launch)
 - [~] **Partial** — Graceful handling if `macmon` / metrics pipe exits (message in terminal); no crash reporter yet
 
 ---

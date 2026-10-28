@@ -57,7 +57,7 @@ The helper accepts only `VERSION`, `PING`, `SET`, `AUTO`, and `PURGE`. RPM is cl
 sudo /Applications/MacmonDash.app/Contents/MacOS/MacmonDash --uninstall-fan-helper
 ```
 
-Temps, fan RPM, and power stay on your Mac. No accounts, no analytics, no cloud.
+Temps, fan RPM, and power stay on your Mac. No accounts, no analytics. The only network use is an optional check of GitHub Releases for updates (and links you open yourself).
 
 > On a shared Mac, any local user can reach the helper socket and set fan speed — nothing else. Remove the helper when you’re done if that matters.
 

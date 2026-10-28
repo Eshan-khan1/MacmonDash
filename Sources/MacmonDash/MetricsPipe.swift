@@ -38,7 +38,24 @@ enum MetricsCadence {
   static let foregroundMs = 2000
   /// Menu-bar only — temp/fans need far less often.
   static let backgroundMs = 4000
+  /// Live pipe interval (foreground dashboard or background menu-bar).
   static var intervalMs = foregroundMs
+  /// Last interval chosen with macmon `-` / `+` while the dashboard is up.
+  static var dashboardMs = foregroundMs
+
+  /// Match macmon 0.7.2 `dec_interval` (250 ms steps, floor 250).
+  static func decDashboard() {
+    let step = 250
+    let raw = max(0, dashboardMs - step)
+    let aligned = ((raw + step - 1) / step) * step
+    dashboardMs = max(aligned, step)
+  }
+
+  /// Match macmon 0.7.2 `inc_interval` (250 ms steps, cap 10_000).
+  static func incDashboard() {
+    let step = 250
+    dashboardMs = min(((dashboardMs + step) / step) * step, 10_000)
+  }
 }
 
 /// Single macmon10 `pipe` reader for fans + power; merges TempProbe on the same tick.

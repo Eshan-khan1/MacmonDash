@@ -12,6 +12,7 @@ enum AppMenu {
     let appItem = NSMenuItem()
     let app = NSMenu(title: "MacmonDash")
     app.addItem(withTitle: "About MacmonDash", action: #selector(AppDelegate.showAbout(_:)), keyEquivalent: "")
+    app.addItem(withTitle: "Check for Updates…", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
     app.addItem(.separator())
     let helperInstall = NSMenuItem(title: "Install Fan Helper…", action: #selector(AppDelegate.installHelper(_:)), keyEquivalent: "")
     helperInstall.tag = MenuTag.installHelper.rawValue
@@ -52,6 +53,8 @@ enum AppMenu {
     // Help
     let helpItem = NSMenuItem()
     let help = NSMenu(title: "Help")
+    help.addItem(withTitle: "Check for Updates…", action: #selector(AppDelegate.checkForUpdates(_:)), keyEquivalent: "")
+    help.addItem(.separator())
     help.addItem(withTitle: "MacmonDash on GitHub", action: #selector(AppDelegate.openRepo(_:)), keyEquivalent: "")
     help.addItem(withTitle: "Report an Issue", action: #selector(AppDelegate.openIssues(_:)), keyEquivalent: "")
     helpItem.submenu = help
