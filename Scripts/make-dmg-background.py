@@ -17,9 +17,10 @@ OUT2 = os.path.join(ROOT, "Resources", "dmg-background@2x.png")
 # Finder window content size (matches make-release / dmgbuild window_rect)
 W1, H1 = 540, 380
 
-BG = (255, 255, 255)
-INK = (28, 36, 32)
-ACCENT = (45, 120, 55)
+# Match Clear Dark window chrome (#181818)
+BG = (24, 24, 24)
+INK = (220, 225, 218)
+ACCENT = (91, 185, 65)
 
 # Icon centers in the 540×380 window (must match dmgbuild icon_locations)
 APP_XY = (140, 175)
