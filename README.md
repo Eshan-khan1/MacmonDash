@@ -26,7 +26,9 @@ One click stops idle background services (Spotlight indexers, Photos analysis, Q
 
 1. [Download MacmonDash.dmg](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.dmg) (or [MacmonDash.zip](https://github.com/Eshan-khan1/MacmonDash/releases/latest/download/MacmonDash.zip)).
 2. Open the disk image and drag **MacmonDash** into **Applications**.
-3. First launch: the app is open source and not notarized yet, so macOS may block it once. Right-click → **Open** → **Open**, or use **System Settings → Privacy & Security → Open Anyway**. After that, it opens normally.
+3. First launch: macOS may show **“MacmonDash” Not Opened** (the app is open source and not notarized yet). Click **Done**, then open **System Settings → Privacy & Security**, scroll to the message about MacmonDash, and click **Open Anyway**. Confirm **Open**. After that, it launches normally.
+
+   Or from Terminal: `xattr -dr com.apple.quarantine /Applications/MacmonDash.app`
 
 Keyboard in the dashboard: `q` quit · `c` colour · `v` view · `-`/`+` sampling · `⌘0` all fans automatic.
 
