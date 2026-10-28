@@ -8,7 +8,8 @@ let tuiRowGapFraction: CGFloat = 0.22
 
 /// Overlay accent that tracks macmon 0.7.2’s `c` color cycle (same ANSI order).
 enum OverlayTheme {
-  /// Green → Yellow → Red → Blue → Magenta → Cyan → Reset (default fg).
+  /// Same order as macmon `COLORS_OPTIONS` / `~/.config/macmon.json` `"color"`.
+  private static let colorNames = ["Green", "Yellow", "Red", "Blue", "Magenta", "Cyan", "Reset"]
   private static let accents: [NSColor] = [
     NSColor(srgbRed: 108 / 255, green: 170 / 255, blue: 113 / 255, alpha: 1),
     NSColor(srgbRed: 196 / 255, green: 172 / 255, blue: 98 / 255, alpha: 1),
@@ -20,7 +21,32 @@ enum OverlayTheme {
   ]
   private(set) static var index = 0
   static var accent: NSColor { accents[index] }
-  static func cycle() { index = (index + 1) % accents.count }
+
+  /// Read macmon’s saved color (and optionally interval) so overlays match the TUI.
+  @discardableResult
+  static func syncFromMacmonConfig() -> (colorChanged: Bool, interval: Int?) {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".config/macmon.json")
+    guard let data = try? Data(contentsOf: url),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return (false, nil) }
+
+    var colorChanged = false
+    if let name = json["color"] as? String,
+       let i = colorNames.firstIndex(of: name),
+       i != index {
+      index = i
+      colorChanged = true
+    }
+
+    var interval: Int?
+    if let n = json["interval"] as? Int {
+      interval = max(n, 250)
+    } else if let n = json["interval"] as? Double {
+      interval = max(Int(n), 250)
+    }
+    return (colorChanged, interval)
+  }
 }
 
 /// Current overlay / fan stroke color (follows `OverlayTheme`).

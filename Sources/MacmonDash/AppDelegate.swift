@@ -163,6 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     )
 
     NSApp.activate(ignoringOtherApps: true)
+    // Match overlays to macmon’s saved color/interval before the TUI starts
+    // (macmon persists `~/.config/macmon.json`; we used to always start on Green).
+    applyMacmonConfigSync(restartPipe: false)
     installMacmonKeySync()
     scheduleStart()
     startMetricsPipe()
@@ -435,7 +438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     metricsPipe.start(macmon10Path: path, intervalMs: MetricsCadence.dashboardMs)
   }
 
-  /// Keep overlays in lockstep with macmon’s `c` (color) and `-`/`+` (interval).
+  /// After macmon handles `c` / `-` / `+`, re-read its config so overlays stay aligned.
   private func installMacmonKeySync() {
     keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       guard let self else { return event }
@@ -447,20 +450,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       }
       guard let ch = event.charactersIgnoringModifiers, ch.count == 1 else { return event }
       switch ch {
-      case "c", "C":
-        OverlayTheme.cycle()
-        self.refreshOverlayTheme()
-      case "-":
-        MetricsCadence.decDashboard()
-        self.metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
-      case "+", "=":
-        MetricsCadence.incDashboard()
-        self.metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
+      case "c", "C", "-", "+", "=":
+        // macmon saves ~/.config/macmon.json after handling the key — sync after it writes.
+        let bumpPipe = (ch == "-" || ch == "+" || ch == "=")
+        for delay in [0.05, 0.15, 0.35] as [Double] {
+          DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.applyMacmonConfigSync(restartPipe: bumpPipe)
+          }
+        }
       default:
         break
       }
       return event
     }
+  }
+
+  private func applyMacmonConfigSync(restartPipe: Bool) {
+    let (colorChanged, interval) = OverlayTheme.syncFromMacmonConfig()
+    if let interval {
+      let prev = MetricsCadence.dashboardMs
+      MetricsCadence.dashboardMs = interval
+      if restartPipe, interval != prev {
+        metricsPipe.setIntervalMs(interval)
+      } else if MetricsCadence.intervalMs != interval, window?.isVisible == true {
+        metricsPipe.setIntervalMs(interval)
+      }
+    }
+    if colorChanged { refreshOverlayTheme() }
   }
 
   private func refreshOverlayTheme() {
