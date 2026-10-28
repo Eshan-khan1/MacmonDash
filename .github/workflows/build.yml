@@ -20,14 +20,17 @@ jobs:
 
       - name: Python tools for DMG (Pillow + dmgbuild)
         run: |
-          python3 -m pip install --user --upgrade pip
-          python3 -m pip install --user pillow dmgbuild
-          echo "$HOME/Library/Python/$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')/bin" >> "$GITHUB_PATH"
+          python3 -m venv .ci-venv
+          .ci-venv/bin/pip install --upgrade pip
+          .ci-venv/bin/pip install pillow dmgbuild
+          echo "$PWD/.ci-venv/bin" >> "$GITHUB_PATH"
 
       - name: Build release bundle (zip + dmg)
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           [[ "$GITHUB_REF_TYPE" == "tag" ]] || VERSION="0.0.0-ci"
+          # Prefer the CI venv's python/dmgbuild (on PATH via GITHUB_PATH).
+          export PATH="$PWD/.ci-venv/bin:$PATH"
           ./Scripts/make-release.sh "$VERSION"
 
       - name: Verify bundle

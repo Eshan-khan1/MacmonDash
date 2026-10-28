@@ -17,3 +17,5 @@ DerivedData/
 
 # Local debugging screenshots
 verify-*.png
+
+.ci-venv/
