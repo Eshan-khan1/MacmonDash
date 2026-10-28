@@ -32,15 +32,24 @@ for f in MacOS/MacmonDash Resources/macmon Resources/macmon10 Resources/AppIcon.
 done
 
 echo "==> DMG background"
-python3 "$ROOT/Scripts/make-dmg-background.py"
+if python3 -c "from PIL import Image" 2>/dev/null; then
+  python3 "$ROOT/Scripts/make-dmg-background.py"
+else
+  echo "Pillow not installed — using committed Resources/dmg-background.png"
+fi
 [[ -f "$BG_PNG" ]] || { echo "missing $BG_PNG" >&2; exit 1; }
 
 DMGBUILD="$(command -v dmgbuild || true)"
-if [[ -z "$DMGBUILD" ]]; then
-  DMGBUILD="$HOME/Library/Python/3.9/bin/dmgbuild"
+if [[ -z "$DMGBUILD" || ! -x "$DMGBUILD" ]]; then
+  for cand in \
+    "$HOME/Library/Python/"*/bin/dmgbuild \
+    /usr/local/bin/dmgbuild \
+    /opt/homebrew/bin/dmgbuild
+  do
+    if [[ -x "$cand" ]]; then DMGBUILD="$cand"; break; fi
+  done
 fi
-if [[ ! -x "$DMGBUILD" ]]; then
-  # Prefer python -m if the module is importable
+if [[ -z "${DMGBUILD:-}" || ! -x "${DMGBUILD:-}" ]]; then
   if python3 -c "import dmgbuild" 2>/dev/null; then
     DMGBUILD=""
   else

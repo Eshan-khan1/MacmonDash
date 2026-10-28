@@ -11,12 +11,18 @@ jobs:
     # SwiftTerm 1.99.x needs Swift 6.2+ → Xcode 26 image.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Swift version
         run: |
           xcodebuild -version
           swift --version
+
+      - name: Python tools for DMG (Pillow + dmgbuild)
+        run: |
+          python3 -m pip install --user --upgrade pip
+          python3 -m pip install --user pillow dmgbuild
+          echo "$HOME/Library/Python/$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')/bin" >> "$GITHUB_PATH"
 
       - name: Build release bundle (zip + dmg)
         run: |
