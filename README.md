@@ -68,7 +68,7 @@ cd MacmonDash
 ./Scripts/make-release.sh 1.0.0   # builds .zip + .dmg into dist/ (no install)
 ```
 
-Needs Xcode 26 / Swift 6.2 or newer (SwiftTerm 1.99 requires it). Bundled `Resources/macmon` (0.7.2, TUI) and `macmon10` (0.10.0, JSON metrics) are unmodified upstream binaries. App icon: `python3 Scripts/make-icon.py` (needs Pillow).
+Needs Xcode 26 / Swift 6.2 or newer (SwiftTerm 1.99 requires it). Release DMGs need `pip3 install --user dmgbuild` (and Pillow for icons/backgrounds). Bundled `Resources/macmon` (0.7.2, TUI) and `macmon10` (0.10.0, JSON metrics) are unmodified upstream binaries. App icon: `python3 Scripts/make-icon.py`.
 
 ## How it works
 
