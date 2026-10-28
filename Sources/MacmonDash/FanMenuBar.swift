@@ -12,6 +12,8 @@ final class FanMenuBar: NSObject, NSPopoverDelegate {
   private var lastManual1: Double?
   private var lastTempC: Double = 0
   var onShowDashboard: (() -> Void)?
+  /// Full process exit (app-menu Quit only parks to the menu bar).
+  var onQuit: (() -> Void)?
 
   var isPopoverShown: Bool { popover.isShown }
 
@@ -111,6 +113,6 @@ final class FanMenuBar: NSObject, NSPopoverDelegate {
   }
 
   @objc private func quitApp() {
-    NSApp.terminate(nil)
+    onQuit?()
   }
 }

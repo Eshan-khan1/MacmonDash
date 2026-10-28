@@ -73,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var termCols = 0
   private var termRows = 0
   private var keyMonitor: Any?
+  /// When false, Quit / ⌘Q parks to the menu bar instead of exiting.
+  private var allowTerminate = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     UserDefaults.standard.removeObject(forKey: "NSWindow Frame MacmonDashMain")
@@ -106,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     self.fanOverlay = overlay
     fanMenu.install()
     fanMenu.onShowDashboard = { [weak self] in self?.showMainWindow(nil) }
+    fanMenu.onQuit = { [weak self] in self?.quitFully(nil) }
     fanMenu.overlay.onSlider0 = { [weak self] v in self?.userMovedSlider(index: 0, level: v) }
     fanMenu.overlay.onSlider1 = { [weak self] v in self?.userMovedSlider(index: 1, level: v) }
     // Temp (middle) + Power (right) over macmon; fans in the CPU cell on top.
@@ -288,10 +291,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     fanOverlay?.animationsEnabled = false
     // Slow the metrics pipe — menu bar only needs a light pulse.
     metricsPipe.setIntervalMs(MetricsCadence.backgroundMs)
+    // Drop the Dock icon; the ° status item stays in the menu bar.
+    NSApp.setActivationPolicy(.accessory)
+  }
+
+  /// App menu Quit / ⌘Q — leave the menu-bar temp control running.
+  @objc func parkToMenuBar(_ sender: Any?) {
+    guard let window else {
+      NSApp.setActivationPolicy(.accessory)
+      return
+    }
+    if window.isVisible {
+      window.close()
+    } else {
+      NSApp.setActivationPolicy(.accessory)
+    }
+  }
+
+  /// Status-item menu Quit — actually exit the process.
+  @objc func quitFully(_ sender: Any?) {
+    allowTerminate = true
+    NSApp.terminate(nil)
+  }
+
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if allowTerminate { return .terminateNow }
+    parkToMenuBar(nil)
+    return .terminateCancel
   }
 
   @objc func showMainWindow(_ sender: Any?) {
     guard let window else { return }
+    NSApp.setActivationPolicy(.regular)
     metricsPipe.setIntervalMs(MetricsCadence.dashboardMs)
     fanOverlay?.animationsEnabled = true
     window.makeKeyAndOrderFront(nil)

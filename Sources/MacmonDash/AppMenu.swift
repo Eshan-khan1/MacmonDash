@@ -27,7 +27,8 @@ enum AppMenu {
     hideOthers.keyEquivalentModifierMask = [.command, .option]
     app.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
     app.addItem(.separator())
-    app.addItem(withTitle: "Quit MacmonDash", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    // Parks to the menu-bar temp icon (real Quit is on the status-item menu).
+    app.addItem(withTitle: "Quit MacmonDash", action: #selector(AppDelegate.parkToMenuBar(_:)), keyEquivalent: "q")
     appItem.submenu = app
     main.addItem(appItem)
 
