@@ -34,8 +34,8 @@ struct LiveMetrics: Equatable {
 
 /// Shared refresh cadence for the TUI and the overlay metrics pipe (ms).
 enum MetricsCadence {
-  /// Dashboard visible — still light; macmon default is 1000.
-  static let foregroundMs = 2000
+  /// Dashboard visible — match macmon’s default (1000 ms).
+  static let foregroundMs = 1000
   /// Menu-bar only — temp/fans need far less often.
   static let backgroundMs = 4000
   /// Live pipe interval (foreground dashboard or background menu-bar).
@@ -73,7 +73,8 @@ final class MetricsPipe {
 
   func start(macmon10Path: String, intervalMs: Int = MetricsCadence.intervalMs) {
     path = macmon10Path
-    self.intervalMs = max(intervalMs, 500)
+    // macmon’s floor is 250 ms; keep the pipe on the same ladder.
+    self.intervalMs = max(intervalMs, 250)
     MetricsCadence.intervalMs = self.intervalMs
     stopProcessOnly()
     let out = Pipe()
@@ -104,9 +105,15 @@ final class MetricsPipe {
 
   /// Switch sampling rate without dropping the onUpdate handler (e.g. window closed).
   func setIntervalMs(_ ms: Int) {
-    let next = max(ms, 500)
+    let next = max(ms, 250)
     guard next != intervalMs, let path else { return }
     start(macmon10Path: path, intervalMs: next)
+  }
+
+  /// Restart even when the interval is unchanged (align with a fresh macmon TUI clock).
+  func realign(intervalMs: Int) {
+    guard let path else { return }
+    start(macmon10Path: path, intervalMs: max(intervalMs, 250))
   }
 
   func stop() {

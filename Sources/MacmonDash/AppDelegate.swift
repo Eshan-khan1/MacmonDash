@@ -501,9 +501,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     if let interval {
       let prev = MetricsCadence.dashboardMs
       MetricsCadence.dashboardMs = interval
-      if restartPipe, interval != prev {
-        metricsPipe.setIntervalMs(interval)
-      } else if MetricsCadence.intervalMs != interval, window?.isVisible == true {
+      let changed = interval != prev || MetricsCadence.intervalMs != interval
+      if changed, window?.isVisible == true || restartPipe {
+        bottomChrome.resetHistory()
         metricsPipe.setIntervalMs(interval)
       }
     }
@@ -641,7 +641,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     env.append("COLORTERM=truecolor")
 
     started = true
-    // Match MetricsPipe cadence so TUI bars and overlay stats tick together.
+    // Re-arm the metrics pipe with the TUI so Temp/Power share macmon’s clock
+    // (same -i and a fresh start — avoids the pipe running ahead of the graphs).
+    bottomChrome.resetHistory()
+    metricsPipe.realign(intervalMs: MetricsCadence.dashboardMs)
     term.startProcess(
       executable: path,
       args: ["-i", "\(MetricsCadence.dashboardMs)"],

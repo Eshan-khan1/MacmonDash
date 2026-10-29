@@ -288,6 +288,12 @@ final class MetricPanelView: NSView {
     push(watts, scaleMax: max(maxW, watts, 0.5))
   }
 
+  func resetHistory() {
+    history.removeAll(keepingCapacity: true)
+    rawHistory.removeAll(keepingCapacity: true)
+    needsDisplay = true
+  }
+
   private func push(_ value: Double, scaleMax: Double) {
     rawHistory.insert(value, at: 0)
     if rawHistory.count > maxPoints { rawHistory.removeLast(rawHistory.count - maxPoints) }
@@ -471,6 +477,15 @@ final class BottomSectionChrome {
     powerPanel.needsDisplay = true
     cpuPowerPatch.needsDisplay = true
     cpuTempPatch.needsDisplay = true
+  }
+
+  /// Drop sparklines when the sample clock restarts so Temp/Power rebuild with the TUI.
+  func resetHistory() {
+    tempPanel.resetHistory()
+    powerPanel.resetHistory()
+    tempAvg = 0; tempMax = 0; tempSamples = 0
+    powerAvg = 0; powerMax = 0; powerSamples = 0
+    cpuPowerAvg = 0; cpuPowerMax = 0; cpuPowerSamples = 0
   }
 
   func update(_ m: LiveMetrics) {
