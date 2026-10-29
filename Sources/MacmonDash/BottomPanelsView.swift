@@ -401,6 +401,9 @@ final class BottomSectionChrome {
   private var tempAvg = 0.0
   private var tempMax = 0.0
   private var tempSamples = 0
+  /// Last good package temp (°C) so sparklines keep advancing if a probe blips.
+  private var lastTempC = 0.0
+  private var lastCornerC = 0.0
   private var powerAvg = 0.0
   private var powerMax = 0.0
   private var powerSamples = 0
@@ -484,20 +487,26 @@ final class BottomSectionChrome {
     tempPanel.resetHistory()
     powerPanel.resetHistory()
     tempAvg = 0; tempMax = 0; tempSamples = 0
+    lastTempC = 0; lastCornerC = 0
     powerAvg = 0; powerMax = 0; powerSamples = 0
     cpuPowerAvg = 0; cpuPowerMax = 0; cpuPowerSamples = 0
   }
 
   func update(_ m: LiveMetrics) {
     // Package probes: TP*s (CPU/system) + TP*g (GPU). Panel shows the hotter one.
-    let temp = m.displayTemp
+    // Always push a temp sample with Power so both sparklines share the same x-axis.
+    let probed = m.displayTemp
+    if probed > 1 {
+      lastTempC = probed
+      lastCornerC = m.packageS > 1 ? m.packageS : probed
+    }
+    let temp = lastTempC
     if temp > 1 {
       tempSamples += 1
       tempAvg += (temp - tempAvg) / Double(tempSamples)
       tempMax = max(tempMax, temp)
       tempPanel.updateTemperature(current: temp, avg: tempAvg, maxT: tempMax)
-      // CPU box corner: TP*s (falls back to hottest if only GPU-side is present).
-      let corner = m.packageS > 1 ? m.packageS : temp
+      let corner = lastCornerC > 1 ? lastCornerC : temp
       let label = String(format: " %.1f°F ", fahrenheit(fromCelsius: corner))
       let pad = String(repeating: " ", count: max(0, cpuTempWidth - label.count))
       cpuTempPatch.text = pad + label

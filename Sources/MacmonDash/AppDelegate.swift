@@ -68,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   private var maxRpm1 = 4000
   private var writeWork0: DispatchWorkItem?
   private var writeWork1: DispatchWorkItem?
+  /// Delayed pipe realign so Temp/Power start with the TUI sampler.
+  private var pipeRealignWork: DispatchWorkItem?
   private var started = false
   private var startAttempts = 0
   private var termCols = 0
@@ -284,6 +286,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
 
   /// Closing the window parks the dashboard; metrics + menu-bar fans keep running.
   @objc private func mainWindowWillClose(_ note: Notification) {
+    pipeRealignWork?.cancel()
+    pipeRealignWork = nil
     if started {
       terminal?.terminate()
       started = false
@@ -438,7 +442,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     // Each callback is one full tick: fans + power + package/battery temps together.
     metricsPipe.onUpdate = { [weak self] m in
       guard let self else { return }
-      // Drop identical samples (common when idle) to avoid needless AppKit work.
+      let dashboardUp = self.window?.isVisible == true
+      // Sparklines must advance every tick (even when flat) or they drift vs macmon.
+      if dashboardUp {
+        self.bottomChrome.update(m)
+      }
+      // Fans / menu bar can skip identical samples — idle redraws aren't useful there.
       if m == self.lastMetrics { return }
       self.lastMetrics = m
       let fans = m.fans
@@ -458,11 +467,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
       let manual0 = self.manual0 ? self.level0 : nil
       let manual1 = self.manual1 ? self.level1 : nil
       let tempC = m.displayTemp
-      let dashboardUp = self.window?.isVisible == true
-      // Skip heavy dashboard redraws when only the menu bar is alive.
       if dashboardUp {
         self.fanOverlay?.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
-        self.bottomChrome.update(m)
       }
       self.fanMenu.update(fans: fans, manual0: manual0, manual1: manual1, tempC: tempC)
     }
@@ -641,16 +647,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
     env.append("COLORTERM=truecolor")
 
     started = true
-    // Re-arm the metrics pipe with the TUI so Temp/Power share macmon’s clock
-    // (same -i and a fresh start — avoids the pipe running ahead of the graphs).
-    bottomChrome.resetHistory()
-    metricsPipe.realign(intervalMs: MetricsCadence.dashboardMs)
     term.startProcess(
       executable: path,
       args: ["-i", "\(MetricsCadence.dashboardMs)"],
       environment: env,
       execName: "macmon"
     )
+    // Let macmon finish spawn/init, then restart the pipe so both samplers
+    // open their first interval window together.
+    pipeRealignWork?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, self.started, self.window?.isVisible == true else { return }
+      self.bottomChrome.resetHistory()
+      self.metricsPipe.realign(intervalMs: MetricsCadence.dashboardMs)
+    }
+    pipeRealignWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
   }
 
   /// Keep the process alive for the menu-bar fan / temp when the dashboard closes.
@@ -664,6 +676,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   func applicationWillTerminate(_ notification: Notification) {
     if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
     keyMonitor = nil
+    pipeRealignWork?.cancel()
+    pipeRealignWork = nil
     pingTimer?.invalidate()
     if manual0 { FanPrivileged.setAutoSilently(fanIndex: 0) }
     if manual1 { FanPrivileged.setAutoSilently(fanIndex: 1) }
@@ -685,6 +699,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
   func processTerminated(source: TerminalView, exitCode: Int32?) {
+    pipeRealignWork?.cancel()
+    pipeRealignWork = nil
     started = false
     // 'q' in the TUI: hide the dashboard; menu-bar fans stay. Abnormal exit: show message.
     if exitCode == 0 || exitCode == nil {
@@ -695,6 +711,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, LocalP
   }
 
   func processFailedToStart(source: TerminalView, error: LocalProcessError) {
+    pipeRealignWork?.cancel()
+    pipeRealignWork = nil
     started = false
     terminal?.feed(text: "\r\nFailed to start macmon: \(error)\r\n")
   }
